@@ -1,0 +1,14 @@
+node_modules/
+dist/
+.env
+.env.local
+.env.*.local
+.vercel/
+.superpowers/
+npm-debug.log*
+*.log
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini

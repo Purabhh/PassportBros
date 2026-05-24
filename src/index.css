@@ -1,0 +1,22 @@
+/* Just the page resets. The deep theming lives inside Scrapbook.jsx, like in
+   PassportBro, so the design stays self-contained per component. */
+
+* { box-sizing: border-box; }
+html, body, #root { margin: 0; padding: 0; min-height: 100%; }
+body {
+  background: #b91d22;
+  color: #f5e7c4;
+  font-family: 'Cormorant Garamond', Georgia, serif;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+.boot {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  min-height: 100vh; gap: 12px; font-family: 'Cormorant Garamond', serif; font-style: italic;
+}
+.boot small { font-family: 'JetBrains Mono', monospace; font-style: normal; font-size: 11px;
+  letter-spacing: 0.3em; text-transform: uppercase; color: rgba(245,231,196,0.6); }
+
+/* react-router default link reset */
+a { color: inherit; text-decoration: none; }
