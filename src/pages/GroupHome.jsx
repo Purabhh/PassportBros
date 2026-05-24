@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import Scrapbook from '../components/Scrapbook.jsx';
-import { api, getMemberFor, clearMemberFor, uploadToR2 } from '../api.js';
+import { api, getMemberFor, clearMemberFor, uploadFile } from '../api.js';
 
 export default function GroupHome() {
   const { groupId } = useParams();
@@ -31,26 +31,14 @@ export default function GroupHome() {
     loadData();
   }, [member, groupId, loadData, nav]);
 
-  // Upload pipeline: validate → sign → PUT to R2 → register in db → refetch.
+  // Upload pipeline: single multipart POST → server saves to disk + db → refetch.
   const handleUpload = useCallback(async (countryCode, file, metadata) => {
     try {
-      const kind = file.type.startsWith('video/') ? 'video' : 'photo';
-      const sign = await api.signUpload({
-        groupId, token: member.token,
-        countryCode, kind,
-        filename: file.name,
-        contentType: file.type,
-        sizeBytes: file.size,
-        durationSec: metadata?.durationSec ?? null,
-      });
-      await uploadToR2({ url: sign.uploadUrl, file });
-      await api.registerUpload({
-        groupId, token: member.token,
-        r2Key: sign.r2Key,
-        countryCode, kind,
-        filename: file.name,
-        contentType: file.type,
-        sizeBytes: file.size,
+      await uploadFile({
+        groupId,
+        token: member.token,
+        countryCode,
+        file,
         durationSec: metadata?.durationSec ?? null,
       });
       await loadData();

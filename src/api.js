@@ -1,4 +1,5 @@
-// Tiny fetch wrapper that auto-attaches the member token for the active group.
+// Tiny fetch wrapper for the PassportBros API. Member tokens are stored
+// per-group in localStorage and auto-attached to authed requests.
 
 const STORAGE_PREFIX = 'passportbros.member.';
 
@@ -18,10 +19,7 @@ export function clearMemberFor(groupId) {
 }
 
 async function request(method, url, { body, token } = {}) {
-  const opts = {
-    method,
-    headers: {},
-  };
+  const opts = { method, headers: {} };
   if (token) opts.headers.Authorization = `Bearer ${token}`;
   if (body !== undefined) {
     opts.headers['Content-Type'] = 'application/json';
@@ -53,30 +51,46 @@ export const api = {
   getData: ({ groupId, token }) =>
     request('GET', `/api/groups/${groupId}/data`, { token }),
 
-  signUpload: ({ groupId, token, ...rest }) =>
-    request('POST', `/api/groups/${groupId}/uploads/sign`, { body: rest, token }),
-
-  registerUpload: ({ groupId, token, ...rest }) =>
-    request('POST', `/api/groups/${groupId}/uploads`, { body: rest, token }),
-
   deleteUpload: ({ groupId, token, uploadId }) =>
     request('DELETE', `/api/groups/${groupId}/uploads?uploadId=${uploadId}`, { token }),
 };
 
-// Direct PUT to a presigned R2 URL — bypasses our API entirely.
-export async function uploadToR2({ url, file, onProgress }) {
-  return new Promise((resolve, reject) => {
+/**
+ * Upload a single file via multipart. Sends the file plus its metadata
+ * (countryCode, kind, durationSec) in one request. Resolves with the
+ * server's { upload } response, or throws on non-2xx.
+ *
+ *   await uploadFile({ groupId, token, countryCode, file, durationSec, onProgress })
+ */
+export async function uploadFile({
+  groupId, token, countryCode, file, durationSec, onProgress,
+}) {
+  const kind = file.type.startsWith('video/') ? 'video' : 'photo';
+  const form = new FormData();
+  form.append('file', file);
+  form.append('countryCode', countryCode);
+  form.append('kind', kind);
+  form.append('filename', file.name);
+  if (durationSec != null) form.append('durationSec', String(durationSec));
+
+  return await new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
-    xhr.open('PUT', url);
-    xhr.setRequestHeader('Content-Type', file.type || 'application/octet-stream');
+    xhr.open('POST', `/api/groups/${groupId}/uploads`);
+    if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`);
     xhr.upload.onprogress = e => {
       if (e.lengthComputable && onProgress) onProgress(e.loaded / e.total);
     };
     xhr.onload = () => {
-      if (xhr.status >= 200 && xhr.status < 300) resolve();
-      else reject(new Error(`R2 upload failed (${xhr.status}): ${xhr.responseText}`));
+      let data;
+      try { data = JSON.parse(xhr.responseText || '{}'); } catch { data = { error: xhr.responseText }; }
+      if (xhr.status >= 200 && xhr.status < 300) resolve(data);
+      else {
+        const err = new Error(data?.error || `HTTP ${xhr.status}`);
+        err.status = xhr.status;
+        reject(err);
+      }
     };
     xhr.onerror = () => reject(new Error('network error during upload'));
-    xhr.send(file);
+    xhr.send(form);
   });
 }

@@ -10,7 +10,7 @@ import { fileURLToPath } from 'node:url';
 import { sql } from '../../_lib/db.js';
 import { requireMember } from '../../_lib/auth.js';
 import { methodOk } from '../../_lib/json.js';
-import { publicUrlFor } from '../../_lib/r2.js';
+import { publicUrlFor } from '../../_lib/storage.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const countriesFile = path.join(__dirname, '..', '..', '..', 'countries.json');
@@ -45,19 +45,19 @@ export default async function handler(req, res) {
     sql`SELECT id, display_name FROM members WHERE group_id = ${groupId} ORDER BY created_at ASC`,
   ]);
 
-  // Resolve R2 URLs in parallel (signed if no public base set).
-  const uploads = await Promise.all(uploadRows.map(async u => ({
+  // Static-served paths — no async needed.
+  const uploads = uploadRows.map(u => ({
     id: u.id,
     countryCode: u.country_code,
     kind: u.kind,
-    url: await publicUrlFor(u.r2_key),
+    url: publicUrlFor(u.r2_key),
     filename: u.original_filename,
     contentType: u.content_type,
     sizeBytes: Number(u.size_bytes),
     durationSec: u.duration_sec,
     createdAt: u.created_at,
     member: u.member_id ? { id: u.member_id, name: u.member_name } : null,
-  })));
+  }));
 
   // Group uploads by country for easy per-country rendering.
   const byCountry = new Map();
