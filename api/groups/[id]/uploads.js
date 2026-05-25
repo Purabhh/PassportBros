@@ -114,16 +114,16 @@ async function deleteUpload(req, res, groupId, auth) {
   const uploadId = Number(req.query?.uploadId);
   if (!Number.isInteger(uploadId)) return badReq(res, 'missing uploadId');
 
+  // Any member of the group can delete any upload in the group. (auth.member
+  // already confirmed by requireMember(). Friends trust friends; if this
+  // becomes a problem we can tighten to uploader-only or add an "admin" flag.)
   const rows = await sql`
-    SELECT id, member_id, r2_key FROM uploads
+    SELECT id, r2_key FROM uploads
      WHERE id = ${uploadId} AND group_id = ${groupId}
      LIMIT 1
   `;
   if (!rows.length) return res.status(404).json({ error: 'upload not found' });
   const u = rows[0];
-  if (u.member_id !== auth.member.id) {
-    return res.status(403).json({ error: 'you can only delete your own uploads' });
-  }
 
   await sql`DELETE FROM uploads WHERE id = ${uploadId}`;
   // file deletion is best-effort; orphan blob is harmless

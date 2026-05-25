@@ -317,7 +317,12 @@ function CountryGallery({ country, me, onClose, onUpload, onDelete }) {
       ) : (
         <div className="bs-gallery">
           {country.uploads.map(u => (
-            <GalleryItem key={u.id} item={u} canDelete={u.member?.id === me.id} onDelete={onDelete} />
+            <GalleryItem
+              key={u.id}
+              item={u}
+              isMine={u.member?.id === me.id}
+              onDelete={onDelete}
+            />
           ))}
         </div>
       )}
@@ -325,10 +330,15 @@ function CountryGallery({ country, me, onClose, onUpload, onDelete }) {
   );
 }
 
-function GalleryItem({ item, canDelete, onDelete }) {
+function GalleryItem({ item, isMine, onDelete }) {
   const [deleting, setDeleting] = useState(false);
   async function handleDelete() {
-    if (!confirm('Delete this upload? Can\'t be undone.')) return;
+    const who = item.member?.name || 'someone';
+    const kind = item.kind === 'video' ? 'video' : 'photo';
+    const prompt = isMine
+      ? `Delete this ${kind}? Can't be undone.`
+      : `Delete ${who}'s ${kind}? They uploaded it — can't be undone.`;
+    if (!confirm(prompt)) return;
     setDeleting(true);
     const r = await onDelete(item.id);
     if (!r.ok) {
@@ -351,16 +361,14 @@ function GalleryItem({ item, canDelete, onDelete }) {
         <span className="bs-item-date">
           {new Date(item.createdAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
         </span>
-        {canDelete && (
-          <button
-            className="bs-item-delete"
-            onClick={handleDelete}
-            disabled={deleting}
-            title="delete this upload"
-          >
-            {deleting ? '…' : '✕'}
-          </button>
-        )}
+        <button
+          className={`bs-item-delete ${isMine ? '' : 'bs-item-delete-foreign'}`}
+          onClick={handleDelete}
+          disabled={deleting}
+          title={isMine ? 'delete this upload' : `delete ${item.member?.name || 'this member'}'s upload`}
+        >
+          {deleting ? '…' : '✕'}
+        </button>
       </figcaption>
     </figure>
   );
@@ -546,8 +554,13 @@ const CSS = `
 .bs-item-caption { display:flex; align-items:center; gap:8px; padding:8px 4px; font-family:'JetBrains Mono',monospace; font-size:10px; letter-spacing:0.15em; text-transform:uppercase; color:#7a1a1a; }
 .bs-item-author { flex:1; font-weight:600; }
 .bs-item-date { opacity:0.6; }
-.bs-item-delete { background:none; border:none; color:#7a1a1a; font-family:'JetBrains Mono',monospace; font-size:14px; cursor:pointer; padding:2px 6px; opacity:0.4; transition:opacity .15s; }
+.bs-item-delete { background:none; border:none; color:#7a1a1a; font-family:'JetBrains Mono',monospace; font-size:14px; cursor:pointer; padding:2px 6px; opacity:0.4; transition:opacity .15s, color .15s; }
 .bs-item-delete:hover:not(:disabled) { opacity:1; color:#b91d22; }
+/* Foreign uploads get a slightly more cautious styling so an accidental
+   click on someone else's photo feels more intentional than the obvious
+   "x out my own thing" gesture. */
+.bs-item-delete-foreign { opacity:0.25; color:#5a1414; }
+.bs-item-delete-foreign:hover:not(:disabled) { color:#b91d22; opacity:0.85; }
 
 /* ── empty state ────────────────────────────────────────────────── */
 .bs-empty { text-align:center; padding:60px 20px; color:rgba(245,231,196,0.6); font-family:'Cormorant Garamond',serif; font-style:italic; font-size:18px; }
