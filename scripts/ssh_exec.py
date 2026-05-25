@@ -14,6 +14,11 @@ import os
 import sys
 import paramiko
 
+# Force utf-8 output so unicode characters from build tools don't crash us.
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
 ip = os.environ.get("DROPLET_IP", "")
 user = os.environ.get("DROPLET_USER", "root")
 password = os.environ.get("DROPLET_PASSWORD", "")
