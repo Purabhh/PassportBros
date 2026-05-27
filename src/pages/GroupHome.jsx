@@ -1,7 +1,10 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import Scrapbook from '../components/Scrapbook.jsx';
-import { api, getMemberFor, clearMemberFor, uploadFile } from '../api.js';
+import {
+  api, getMemberFor, saveMemberFor, clearMemberFor,
+  listMemberships, uploadFile,
+} from '../api.js';
 
 export default function GroupHome() {
   const { groupId } = useParams();
@@ -30,6 +33,16 @@ export default function GroupHome() {
     if (!member) { nav(`/g/${groupId}`, { replace: true }); return; }
     loadData();
   }, [member, groupId, loadData, nav]);
+
+  // Lazy backfill: if this device's stored membership predates the
+  // group-switcher feature (no groupName), fill it in now so the
+  // switcher can render the group's real name.
+  useEffect(() => {
+    if (!member || !data?.group) return;
+    if (!member.groupName || member.groupName !== data.group.name) {
+      saveMemberFor(groupId, member, data.group.name);
+    }
+  }, [member, data?.group, groupId]);
 
   // Upload pipeline: single multipart POST → server saves to disk + db → refetch.
   const handleUpload = useCallback(async (countryCode, file, metadata) => {
@@ -92,6 +105,12 @@ export default function GroupHome() {
     </div>
   );
 
+  // listMemberships() reads localStorage synchronously. It's cheap so we just
+  // call it on every render — no point in stashing it in state when joining
+  // another group writes to localStorage but doesn't trigger a re-render
+  // here anyway. (After a join → navigate, the destination page re-renders.)
+  const memberships = listMemberships();
+
   return (
     <Scrapbook
       group={data.group}
@@ -99,10 +118,12 @@ export default function GroupHome() {
       members={data.members}
       countries={data.countries}
       totals={data.totals}
+      memberships={memberships}
       onUpload={handleUpload}
       onDelete={handleDelete}
       onReorder={handleReorder}
       onLeave={handleLeave}
+      onSwitchGroup={(id) => nav(`/g/${id}`)}
       inviteUrl={typeof window !== 'undefined' ? `${window.location.origin}/g/${groupId}` : `/g/${groupId}`}
     />
   );

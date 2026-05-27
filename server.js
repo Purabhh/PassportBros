@@ -7,6 +7,7 @@
 import 'dotenv/config';
 import express from 'express';
 import multer from 'multer';
+import rateLimit from 'express-rate-limit';
 import path from 'node:path';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -27,6 +28,11 @@ const PORT = Number(process.env.API_PORT || 3001);
 const app = express();
 app.disable('x-powered-by');
 
+// In production we sit behind nginx on the same droplet. Without trust proxy
+// express thinks every request originates from 127.0.0.1, which would collapse
+// our rate-limit buckets into one. Trust exactly one hop (our local nginx).
+app.set('trust proxy', 1);
+
 // JSON parser for non-upload routes — 1MB plenty for our tiny payloads.
 app.use(express.json({ limit: '1mb' }));
 
@@ -36,6 +42,49 @@ fs.mkdirSync(tmpDir, { recursive: true });
 const upload = multer({
   dest: tmpDir,
   limits: { fileSize: 500 * 1024 * 1024 }, // 500 MB
+});
+
+// ─── Rate limiters ─────────────────────────────────────────────────────
+//
+// Group creation: 5/day per (IP + device-ID) so a single device on a single
+// network can't spawn endless scrapbooks. Friends behind the same NAT each
+// get their own bucket because they have different device-IDs. Frontend
+// generates the device-ID once per browser and persists it in localStorage.
+const groupCreateLimiter = rateLimit({
+  windowMs: 24 * 60 * 60 * 1000,
+  max: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => {
+    const deviceId = String(req.headers['x-device-id'] || 'anon').slice(0, 80);
+    return `gc:${req.ip}:${deviceId}`;
+  },
+  handler: (_req, res) => {
+    res.status(429).json({
+      error: 'too many scrapbooks made from this device today — try again tomorrow',
+    });
+  },
+});
+
+// Uploads: 100/hour per member token. A group of 5 friends each uploading
+// at full tilt gets 500 uploads/hour shared — way more than realistic.
+// The token-based key is correct even across group switches because each
+// group issues its own token, and uploads are billed to the group anyway.
+const uploadLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 100,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => {
+    const auth = String(req.headers.authorization || '');
+    const tok = auth.startsWith('Bearer ') ? auth.slice(7, 7 + 64) : `noauth:${req.ip}`;
+    return `up:${tok}`;
+  },
+  handler: (_req, res) => {
+    res.status(429).json({
+      error: 'too many uploads this hour — give it a few minutes',
+    });
+  },
 });
 
 // Adapter — Vercel-style handlers expect path params on req.query.
@@ -53,11 +102,13 @@ function adapt(handler, paramKeys = []) {
 }
 
 // ─── API routes ────────────────────────────────────────────────────────
-app.post('/api/groups',                       adapt(groupsCreate));
+// Rate-limited routes run their limiter BEFORE the body parser / multer so a
+// rejected request doesn't write a 500 MB upload to disk before being denied.
+app.post('/api/groups',                       groupCreateLimiter, adapt(groupsCreate));
 app.get( '/api/groups/:id',                   adapt(groupGet,      ['id']));
 app.post('/api/groups/:id/members',           adapt(membersCreate, ['id']));
 app.get( '/api/groups/:id/data',              adapt(groupData,     ['id']));
-app.post('/api/groups/:id/uploads',           upload.single('file'), adapt(uploadsHandler, ['id']));
+app.post('/api/groups/:id/uploads',           uploadLimiter, upload.single('file'), adapt(uploadsHandler, ['id']));
 app.delete('/api/groups/:id/uploads',         adapt(uploadsHandler, ['id']));
 app.patch('/api/groups/:id/uploads',          adapt(uploadsHandler, ['id']));
 

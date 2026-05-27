@@ -71,11 +71,40 @@ const MAX_VIDEO_SECONDS = 5 * 60;
 
 export default function Scrapbook({
   group, me, members, countries, totals,
+  memberships = [], onSwitchGroup,
   onUpload, onDelete, onReorder, onLeave, inviteUrl,
 }) {
   const [selected, setSelected] = useState(null);
   const [query, setQuery] = useState('');
   const [copied, setCopied] = useState(false);
+  const [switcherOpen, setSwitcherOpen] = useState(false);
+  const switcherRef = useRef(null);
+
+  // Memberships excluding the current group, sorted by name. The current
+  // group is excluded because the button to "switch to where I already am"
+  // is a no-op and clutters the menu.
+  const otherGroups = useMemo(() => (memberships || [])
+    .filter(m => m.groupId !== group.id)
+    .sort((a, b) => (a.groupName || '').localeCompare(b.groupName || '')),
+    [memberships, group.id],
+  );
+
+  // Click-outside + escape closes the switcher.
+  useEffect(() => {
+    if (!switcherOpen) return;
+    function onDown(e) {
+      if (switcherRef.current && !switcherRef.current.contains(e.target)) {
+        setSwitcherOpen(false);
+      }
+    }
+    function onKey(e) { if (e.key === 'Escape') setSwitcherOpen(false); }
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDown);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [switcherOpen]);
   const stats = useStats(countries);
   const filtered = useFiltered(countries, query);
   useEscape(!!selected, () => setSelected(null));
@@ -180,6 +209,54 @@ export default function Scrapbook({
             </span>
           </div>
           <div className="bs-meta-actions">
+            <div className="bs-switcher" ref={switcherRef}>
+              <button
+                className="bs-meta-btn"
+                aria-haspopup="true"
+                aria-expanded={switcherOpen}
+                onClick={() => setSwitcherOpen(o => !o)}
+              >
+                {/* The button shows the current group's name so it doubles as a
+                    "you are here" indicator. The ▾ telegraphs the dropdown. */}
+                ✈ {group.name} ▾
+              </button>
+              {switcherOpen && (
+                <div className="bs-switcher-panel" role="menu">
+                  <div className="bs-switcher-section">where to</div>
+                  {otherGroups.length === 0 && (
+                    <div className="bs-switcher-empty">
+                      this is your only scrapbook<br/>
+                      <small>create or join another below</small>
+                    </div>
+                  )}
+                  {otherGroups.map(g => (
+                    <button
+                      key={g.groupId}
+                      className="bs-switcher-row"
+                      role="menuitem"
+                      onClick={() => {
+                        setSwitcherOpen(false);
+                        if (onSwitchGroup) onSwitchGroup(g.groupId);
+                      }}
+                    >
+                      <span className="bs-switcher-name">
+                        {g.groupName || '(unnamed scrapbook)'}
+                      </span>
+                      <span className="bs-switcher-sub">as {g.displayName || '—'}</span>
+                    </button>
+                  ))}
+                  <div className="bs-switcher-divider" />
+                  <a
+                    className="bs-switcher-row bs-switcher-new"
+                    href="/"
+                    role="menuitem"
+                  >
+                    <span className="bs-switcher-name">+ new scrapbook</span>
+                    <span className="bs-switcher-sub">create or join another</span>
+                  </a>
+                </div>
+              )}
+            </div>
             <button className="bs-meta-btn" onClick={copyInvite}>
               {copied ? '✓ link copied' : '⌘ copy invite link'}
             </button>
@@ -593,6 +670,52 @@ const CSS = `
 .bs-meta-btn:hover { background:#d4af37; color:#1a0808; }
 .bs-meta-btn-quiet { border-color:rgba(212,175,55,0.25); color:rgba(212,175,55,0.55); }
 .bs-meta-btn-quiet:hover { background:rgba(122,26,26,0.6); color:#f5e7c4; border-color:rgba(220,53,69,0.5); }
+
+/* ── group switcher ─────────────────────────────────────────────── */
+.bs-switcher { position:relative; }
+.bs-switcher-panel {
+  position:absolute; top:calc(100% + 6px); right:0; z-index:30;
+  min-width:240px; max-width:320px;
+  background:#1a0808;
+  box-shadow:0 8px 24px rgba(0,0,0,0.55), inset 0 0 0 1.5px #d4af37, inset 0 0 0 3px rgba(20,8,8,0.4), inset 0 0 0 4px rgba(212,175,55,0.5);
+  padding:8px;
+  animation:bsSwitcherFade .14s ease-out;
+}
+@keyframes bsSwitcherFade {
+  from { opacity:0; transform:translateY(-4px); }
+  to   { opacity:1; transform:translateY(0); }
+}
+.bs-switcher-section {
+  font-family:'JetBrains Mono',monospace; font-size:9px; letter-spacing:0.35em;
+  text-transform:uppercase; color:#d4af37; padding:8px 10px 6px;
+  border-bottom:1px dashed rgba(212,175,55,0.3); margin-bottom:4px;
+}
+.bs-switcher-row {
+  display:flex; flex-direction:column; align-items:flex-start; gap:2px;
+  width:100%; text-align:left; padding:9px 12px;
+  background:transparent; border:none; cursor:pointer;
+  font-family:'Cormorant Garamond',serif; color:#f5e7c4;
+  text-decoration:none; transition:background .12s;
+}
+.bs-switcher-row:hover, .bs-switcher-row:focus-visible {
+  background:rgba(212,175,55,0.12); outline:none;
+}
+.bs-switcher-name { font-style:italic; font-size:16px; line-height:1.15; }
+.bs-switcher-sub {
+  font-family:'JetBrains Mono',monospace; font-size:9px; letter-spacing:0.22em;
+  text-transform:uppercase; color:rgba(212,175,55,0.7);
+}
+.bs-switcher-divider { height:1px; background:rgba(212,175,55,0.25); margin:6px 4px; }
+.bs-switcher-new .bs-switcher-name { color:#d4af37; }
+.bs-switcher-empty {
+  padding:14px 12px; font-family:'Cormorant Garamond',serif; font-style:italic;
+  font-size:14px; color:rgba(245,231,196,0.7); text-align:center; line-height:1.4;
+}
+.bs-switcher-empty small {
+  display:block; margin-top:4px;
+  font-family:'JetBrains Mono',monospace; font-style:normal; font-size:9px;
+  letter-spacing:0.22em; text-transform:uppercase; color:rgba(212,175,55,0.5);
+}
 
 /* ── search ─────────────────────────────────────────────────────── */
 .bs-search-row { display:flex; align-items:center; gap:14px; margin-bottom:22px; }

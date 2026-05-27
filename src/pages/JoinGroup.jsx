@@ -26,7 +26,7 @@ export default function JoinGroup() {
     setBusy(true); setErr('');
     try {
       const { member } = await api.joinGroup({ groupId, displayName: displayName.trim() });
-      saveMemberFor(groupId, member);
+      saveMemberFor(groupId, member, group?.name);
       nav(`/g/${groupId}`, { replace: true });
     } catch (e) {
       setErr(e.message);

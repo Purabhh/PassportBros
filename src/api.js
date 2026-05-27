@@ -2,6 +2,23 @@
 // per-group in localStorage and auto-attached to authed requests.
 
 const STORAGE_PREFIX = 'passportbros.member.';
+const DEVICE_ID_KEY = 'pb_device_id';
+
+// One-per-browser random ID, used as half of the rate-limit key for
+// unauthenticated routes (the other half is IP). Persisted in localStorage
+// so it survives reloads and group switches — but a fresh browser profile
+// gets a fresh ID, which is the limit we want.
+export function getDeviceId() {
+  try {
+    let id = localStorage.getItem(DEVICE_ID_KEY);
+    if (id) return id;
+    id = (typeof crypto !== 'undefined' && crypto.randomUUID)
+      ? crypto.randomUUID()
+      : Math.random().toString(36).slice(2) + Date.now().toString(36);
+    localStorage.setItem(DEVICE_ID_KEY, id);
+    return id;
+  } catch { return 'no-device-id'; }
+}
 
 export function getMemberFor(groupId) {
   try {
@@ -10,16 +27,48 @@ export function getMemberFor(groupId) {
   } catch { return null; }
 }
 
-export function saveMemberFor(groupId, member) {
-  localStorage.setItem(STORAGE_PREFIX + groupId, JSON.stringify(member));
+// Stored shape: { id, displayName, token, groupId, groupName }.
+// groupId/groupName are denormalized into the value so the group-switcher
+// can render the list without an extra round-trip per group.
+export function saveMemberFor(groupId, member, groupName) {
+  const existing = getMemberFor(groupId) || {};
+  const stored = {
+    ...existing,
+    ...member,
+    groupId,
+    groupName: groupName ?? existing.groupName ?? null,
+  };
+  localStorage.setItem(STORAGE_PREFIX + groupId, JSON.stringify(stored));
 }
 
 export function clearMemberFor(groupId) {
   localStorage.removeItem(STORAGE_PREFIX + groupId);
 }
 
+// Returns every group this device has joined. Used by the group switcher.
+// Entries without a groupName (legacy or pre-backfill) are still returned
+// so the switcher can show them as "(unnamed)" rather than hide them.
+export function listMemberships() {
+  const out = [];
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (!key || !key.startsWith(STORAGE_PREFIX)) continue;
+      try {
+        const parsed = JSON.parse(localStorage.getItem(key));
+        out.push({
+          groupId: parsed.groupId || key.slice(STORAGE_PREFIX.length),
+          groupName: parsed.groupName || null,
+          displayName: parsed.displayName || '',
+        });
+      } catch { /* skip malformed entry */ }
+    }
+  } catch { /* localStorage unavailable */ }
+  return out;
+}
+
 async function request(method, url, { body, token } = {}) {
-  const opts = { method, headers: {} };
+  const opts = { method, headers: { 'X-Device-Id': getDeviceId() } };
   if (token) opts.headers.Authorization = `Bearer ${token}`;
   if (body !== undefined) {
     opts.headers['Content-Type'] = 'application/json';
@@ -82,6 +131,7 @@ export async function uploadFile({
     const xhr = new XMLHttpRequest();
     xhr.open('POST', `/api/groups/${groupId}/uploads`);
     if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+    xhr.setRequestHeader('X-Device-Id', getDeviceId());
     xhr.upload.onprogress = e => {
       if (e.lengthComputable && onProgress) onProgress(e.loaded / e.total);
     };
