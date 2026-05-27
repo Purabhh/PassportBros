@@ -1,7 +1,7 @@
-// GET /api/groups/[id] — public info about a group (used by the join page).
+// GET /api/groups/[id] - public info about a group (used by the join page).
 // Anyone with the URL can read the group's name, member display names, and
 // aggregate stats (countries visited, total memories). No private content
-// — photo URLs, identities-on-uploads, and tokens stay behind auth.
+// - photo URLs, identities-on-uploads, and tokens stay behind auth.
 
 import { sql } from '../_lib/db.js';
 import { methodOk } from '../_lib/json.js';
@@ -23,7 +23,7 @@ export default async function handler(req, res) {
 
   // Display names of the first 8 members (ordered by join time), so the
   // invite page can show a friend strip. We cap the list so a 100-member
-  // group doesn't bloat the response — the count above still shows total.
+  // group doesn't bloat the response - the count above still shows total.
   const memberRows = await sql`
     SELECT display_name FROM members
      WHERE group_id = ${id}

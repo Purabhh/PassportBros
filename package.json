@@ -2,7 +2,7 @@
   "name": "passportbros",
   "version": "1.0.0",
   "private": true,
-  "description": "r/PassportBros — a shared travel scrapbook for you and your friends.",
+  "description": "r/PassportBros · a shared travel scrapbook for you and your friends.",
   "type": "module",
   "scripts": {
     "dev": "concurrently -n api,web -c yellow,cyan \"node server.js\" \"vite\"",

@@ -1,4 +1,4 @@
-// POST /api/groups/[id]/members — join an existing group.
+// POST /api/groups/[id]/members - join an existing group.
 // Body: { displayName: string }
 // Response: { member: {id, displayName, token} }
 //

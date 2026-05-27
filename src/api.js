@@ -6,7 +6,7 @@ const DEVICE_ID_KEY = 'pb_device_id';
 
 // One-per-browser random ID, used as half of the rate-limit key for
 // unauthenticated routes (the other half is IP). Persisted in localStorage
-// so it survives reloads and group switches — but a fresh browser profile
+// so it survives reloads and group switches - but a fresh browser profile
 // gets a fresh ID, which is the limit we want.
 export function getDeviceId() {
   try {

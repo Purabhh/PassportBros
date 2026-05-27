@@ -46,7 +46,7 @@ export default function GroupHome() {
 
   // Upload pipeline: single multipart POST → server saves to disk + db → refetch.
   // The optional onProgress callback is invoked with a 0..1 fraction for the
-  // file currently being sent — used by the gallery to render a progress bar
+  // file currently being sent - used by the gallery to render a progress bar
   // so big-video uploads over LTE don't look frozen.
   const handleUpload = useCallback(async (countryCode, file, metadata) => {
     try {
@@ -92,12 +92,12 @@ export default function GroupHome() {
   function handleLeave() {
     // The "rejoin creates a fresh member" trap is real: api.joinGroup always
     // inserts a new row, so the old uploads stay in the group but become
-    // orphaned — viewable by everyone, no longer deletable by you. Until we
+    // orphaned - viewable by everyone, no longer deletable by you. Until we
     // server-side dedupe by device-ID this warning is the lazy fix.
     const msg =
       'Leave this group on this device?\n\n' +
       "Your uploads stay in the group. If you rejoin from the same link, " +
-      "you'll appear as a NEW member — you won't be able to delete or reorder " +
+      "you'll appear as a NEW member. you won't be able to delete or reorder " +
       'the uploads you made before.';
     if (!confirm(msg)) return;
     clearMemberFor(groupId);
@@ -108,7 +108,7 @@ export default function GroupHome() {
     <div className="boot">
       <div style={{fontSize:24}}>couldn't load the group</div>
       <small>{error}</small>
-      <small>try refreshing — or check the server is running</small>
+      <small>try refreshing or check the server is running</small>
     </div>
   );
   if (!data) return (
@@ -119,7 +119,7 @@ export default function GroupHome() {
   );
 
   // listMemberships() reads localStorage synchronously. It's cheap so we just
-  // call it on every render — no point in stashing it in state when joining
+  // call it on every render - no point in stashing it in state when joining
   // another group writes to localStorage but doesn't trigger a re-render
   // here anyway. (After a join → navigate, the destination page re-renders.)
   const memberships = listMemberships();

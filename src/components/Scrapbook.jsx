@@ -1,4 +1,4 @@
-// Scrapbook — the inside of the boarding-pass terminal.
+// Scrapbook - the inside of the boarding-pass terminal.
 // Renders the country grid (group home) plus the per-country detail panel.
 // Visuals mirror the boarding-pass landing + invite page so the whole app
 // is one coherent metaphor: a chronicle of stamps you collect with friends.
@@ -351,7 +351,7 @@ export default function Scrapbook({
                         }}
                       >
                         <span className="bs-switcher-name">{g.groupName || '(unnamed chronicle)'}</span>
-                        <span className="bs-switcher-sub">as {g.displayName || '—'}</span>
+                        <span className="bs-switcher-sub">as {g.displayName || '?'}</span>
                       </button>
                     ))}
                     <div className="bs-switcher-divider" />
@@ -393,10 +393,10 @@ export default function Scrapbook({
               )}
             </div>
 
-            {/* MANIFEST — country grid */}
+            {/* MANIFEST - country grid */}
             <div className="bs-manifest">
               <div className="bs-manifest-head">
-                <span>— manifest —</span>
+                <span>· manifest ·</span>
                 <span><b>{filtered.length}</b> of {stats.total} countries</span>
               </div>
 
@@ -513,7 +513,7 @@ function CountryGallery({ country, me, members, groupRef, onClose, onUpload, onD
   useEffect(() => { setItems(country.uploads); }, [country.uploads]);
 
   const sensors = useSensors(
-    // 6px activation distance — short enough to feel responsive, long enough
+    // 6px activation distance - short enough to feel responsive, long enough
     // that a stray click on the X-delete button doesn't accidentally drag.
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
@@ -554,18 +554,18 @@ function CountryGallery({ country, me, members, groupRef, onClose, onUpload, onD
         try {
           durationSec = await readVideoDuration(file);
         } catch {
-          setError(`couldn't read "${file.name}" — is it a valid video?`);
+          setError(`couldn't read "${file.name}". is it a valid video?`);
           continue;
         }
         if (durationSec && durationSec > MAX_VIDEO_SECONDS) {
-          setError(`"${file.name}" is ${formatDuration(durationSec)} — max is 5:00`);
+          setError(`"${file.name}" is ${formatDuration(durationSec)}. max is 5:00`);
           continue;
         }
       }
 
       const result = await onUpload(country.code, file, {
         durationSec,
-        // XHR progress events fire constantly — throttle to whole-percent
+        // XHR progress events fire constantly - throttle to whole-percent
         // changes so React isn't re-rendering 100×/sec on a fast LAN.
         onProgress: (frac) => setProgress(p => p && p.idx === i + 1
           ? (Math.floor(frac * 100) === Math.floor((p.pct || 0) * 100) ? p : { ...p, pct: frac })
@@ -692,9 +692,9 @@ function CountryGallery({ country, me, members, groupRef, onClose, onUpload, onD
               {items.length === 0 ? (
                 <div className="bs-empty">
                   <div className="bs-plaque">
-                    <span className="bs-plaque-tag">— plaque —</span>
+                    <span className="bs-plaque-tag">· plaque ·</span>
                     <div className="bs-plaque-title">an unvisited place</div>
-                    <div className="bs-plaque-sub">— be the first to write its entry</div>
+                    <div className="bs-plaque-sub">be the first to write its entry</div>
                     <div className="bs-plaque-count">0 memories from the group</div>
                   </div>
                   <button
@@ -708,7 +708,7 @@ function CountryGallery({ country, me, members, groupRef, onClose, onUpload, onD
               ) : (
                 <>
                   <div className="bs-manifest-head">
-                    <span>— field entries —</span>
+                    <span>· field entries ·</span>
                     <span><b>{items.length}</b> {items.length === 1 ? 'entry' : 'entries'}</span>
                   </div>
                   <DndContext

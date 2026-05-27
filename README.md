@@ -56,7 +56,7 @@ Neon Postgres (groups/members/uploads)   Cloudflare R2 (photos + videos)
 **Auth model.** Every group has a long random ID (`xY8nQ3kP42aBc7HmK5jL2`)
 that lives in the URL path: `passportbros.app/g/<id>`. Anyone with that URL
 can open the join page, pick a display name, and become a member. Each
-member gets a personal `member_token` stored in `localStorage` — it's
+member gets a personal `member_token` stored in `localStorage`. it's
 their session. The URL plus your token = your access. No passwords.
 
 **Uploads.** Browser asks the API to sign an upload URL; the API checks
@@ -93,7 +93,7 @@ PassportBros/
 │       └── uploads/sign.js       # POST presigned R2 URL
 ├── migrations/001-init.sql       # schema
 ├── migrate.js                    # runs migrations against DATABASE_URL
-├── dev-server.js                 # Express shim — mounts api/ for local dev
+├── dev-server.js                 # Express shim - mounts api/ for local dev
 ├── countries.json                # 199 countries (ISO code, name, flag)
 ├── src/
 │   ├── main.jsx + App.jsx        # React entry + router
@@ -115,7 +115,7 @@ The first version focuses on the core multi-user flow. Coming soon:
 - Drag-to-reorder per country (UX decision needed: per-member or group-shared?)
 - Pin a "cover" photo per country instead of newest-wins
 - Rotate the invite link / kick a member
-- Captions and dates (the data model already has room — just needs UI)
+- Captions and dates (the data model already has room - just needs UI)
 - Push notifications when a friend posts
 
 ## License

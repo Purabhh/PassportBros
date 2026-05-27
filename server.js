@@ -33,10 +33,10 @@ app.disable('x-powered-by');
 // our rate-limit buckets into one. Trust exactly one hop (our local nginx).
 app.set('trust proxy', 1);
 
-// JSON parser for non-upload routes — 1MB plenty for our tiny payloads.
+// JSON parser for non-upload routes - 1MB plenty for our tiny payloads.
 app.use(express.json({ limit: '1mb' }));
 
-// Multer for the upload route only — diskStorage so big videos don't sit in RAM.
+// Multer for the upload route only - diskStorage so big videos don't sit in RAM.
 const tmpDir = path.join(UPLOADS_ROOT, '.tmp');
 fs.mkdirSync(tmpDir, { recursive: true });
 const upload = multer({
@@ -61,13 +61,13 @@ const groupCreateLimiter = rateLimit({
   },
   handler: (_req, res) => {
     res.status(429).json({
-      error: 'too many scrapbooks made from this device today — try again tomorrow',
+      error: 'too many scrapbooks made from this device today. try again tomorrow',
     });
   },
 });
 
 // Uploads: 100/hour per member token. A group of 5 friends each uploading
-// at full tilt gets 500 uploads/hour shared — way more than realistic.
+// at full tilt gets 500 uploads/hour shared - way more than realistic.
 // The token-based key is correct even across group switches because each
 // group issues its own token, and uploads are billed to the group anyway.
 const uploadLimiter = rateLimit({
@@ -82,12 +82,12 @@ const uploadLimiter = rateLimit({
   },
   handler: (_req, res) => {
     res.status(429).json({
-      error: 'too many uploads this hour — give it a few minutes',
+      error: 'too many uploads this hour. give it a few minutes',
     });
   },
 });
 
-// Adapter — Vercel-style handlers expect path params on req.query.
+// Adapter - Vercel-style handlers expect path params on req.query.
 function adapt(handler, paramKeys = []) {
   return async (req, res) => {
     req.query = { ...req.query };

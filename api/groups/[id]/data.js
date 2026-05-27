@@ -1,4 +1,4 @@
-// GET /api/groups/[id]/data — everything the SPA needs to render a group:
+// GET /api/groups/[id]/data - everything the SPA needs to render a group:
 // the country list (with photo counts), all uploads grouped by country,
 // the current member's name, and the group's basic info.
 //
@@ -45,7 +45,7 @@ export default async function handler(req, res) {
     sql`SELECT id, display_name FROM members WHERE group_id = ${groupId} ORDER BY created_at ASC`,
   ]);
 
-  // Static-served paths — no async needed.
+  // Static-served paths - no async needed.
   const uploads = uploadRows.map(u => ({
     id: u.id,
     countryCode: u.country_code,

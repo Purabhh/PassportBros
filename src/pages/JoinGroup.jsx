@@ -1,7 +1,7 @@
 // Invite-acceptance page rendered at /g/:id when the visitor doesn't yet
 // have a membership stored on this device. Styled as a boarding stub
 // (torn left edge on desktop, torn top on mobile) so it visually matches
-// the boarding-pass landing — the whole app is the same metaphor end-to-end.
+// the boarding-pass landing - the whole app is the same metaphor end-to-end.
 
 import React, { useEffect, useMemo, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
@@ -140,7 +140,7 @@ export default function JoinGroup() {
     try {
       const { member } = await api.joinGroup({ groupId, displayName: displayName.trim() });
       saveMemberFor(groupId, member, group?.name);
-      // Tiny pause so the "BOARDED" stamp is readable before we leave —
+      // Tiny pause so the "BOARDED" stamp is readable before we leave -
       // otherwise the navigate steals the celebration immediately.
       setStage('done');
       setTimeout(() => nav(`/g/${groupId}`, { replace: true }), 1100);
@@ -198,7 +198,7 @@ export default function JoinGroup() {
                 welcome aboard, {displayName.split(' ')[0]}.
               </h2>
               <p className="ji-done-sub">
-                you're in <em>"{group.name}"</em> — opening your scrapbook…
+                you're in <em>"{group.name}"</em>. opening your scrapbook…
               </p>
             </div>
           ) : (
@@ -229,7 +229,7 @@ export default function JoinGroup() {
               <div className="ji-joining">
                 <div className="ji-joining-label">you're joining</div>
                 <h1 className="ji-joining-name">"{group.name}"</h1>
-                {dateLabel && <div className="ji-joining-date">— {dateLabel} —</div>}
+                {dateLabel && <div className="ji-joining-date">· {dateLabel} ·</div>}
               </div>
 
               {/* friend strip */}
@@ -351,12 +351,12 @@ const CSS = `
   box-shadow:0 30px 70px rgba(0,0,0,0.55), 0 0 0 1px rgba(58,10,8,0.15);
   color:#2a0808;
 }
-/* torn left edge — radial scallops cut out of the left side */
+/* torn left edge - radial scallops cut out of the left side */
 .ji-stub-wide {
   -webkit-mask:radial-gradient(circle at 0 18px, transparent 9px, #000 9.5px) 0 0/100% 36px;
           mask:radial-gradient(circle at 0 18px, transparent 9px, #000 9.5px) 0 0/100% 36px;
 }
-/* torn top edge — same idea rotated for mobile */
+/* torn top edge - same idea rotated for mobile */
 .ji-stub-narrow {
   -webkit-mask:radial-gradient(circle at 18px 0, transparent 9px, #000 9.5px) 0 0/36px 100%;
           mask:radial-gradient(circle at 18px 0, transparent 9px, #000 9.5px) 0 0/36px 100%;

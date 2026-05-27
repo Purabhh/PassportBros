@@ -1,8 +1,8 @@
-// POST /api/groups — create a new group.
+// POST /api/groups - create a new group.
 // Body: { name: string, founderName: string }
 // Response: { group: {id, name}, member: {id, displayName, token} }
 //
-// The returned group.id IS the invite token — share the URL /g/<id> with friends.
+// The returned group.id IS the invite token - share the URL /g/<id> with friends.
 // The member token is what the founder uses to authenticate from now on.
 
 import { sql } from './_lib/db.js';

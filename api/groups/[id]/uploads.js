@@ -1,9 +1,9 @@
-// POST   /api/groups/[id]/uploads        — multipart upload (field: "file")
-// DELETE /api/groups/[id]/uploads?uploadId=N  — remove an upload (own only)
+// POST   /api/groups/[id]/uploads        - multipart upload (field: "file")
+// DELETE /api/groups/[id]/uploads?uploadId=N  - remove an upload (own only)
 //
 // Multer is wired in server.js so by the time this runs:
-//   req.file       — multer file object (path on disk, originalname, mimetype, size)
-//   req.body       — text form fields (countryCode, kind, durationSec)
+//   req.file       - multer file object (path on disk, originalname, mimetype, size)
+//   req.body       - text form fields (countryCode, kind, durationSec)
 
 import path from 'node:path';
 import { db, sql, isUniqueViolation } from '../../_lib/db.js';
@@ -63,7 +63,7 @@ async function registerUpload(req, res, groupId, auth) {
     }
   }
 
-  // Final storage key — keep the legacy r2_key column name in the db.
+  // Final storage key - keep the legacy r2_key column name in the db.
   const ts = Date.now();
   const safe = filename.replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 80);
   const r2Key = `groups/${groupId}/${countryCode}/${ts}-${safe}`;
@@ -143,7 +143,7 @@ async function deleteUpload(req, res, groupId, auth) {
 // Reorder every upload in a (group, country) to match the client's new sequence.
 // Body: { countryCode: 'co', orderedIds: [12, 5, 27, ...] }
 // The orderedIds list must contain exactly the set of current upload ids for
-// that country — extras or omissions are rejected so the client never silently
+// that country - extras or omissions are rejected so the client never silently
 // loses an item when it's out of sync.
 async function reorderUploads(req, res, groupId, _auth) {
   const body = await readBody(req).catch(() => null);
@@ -169,14 +169,14 @@ async function reorderUploads(req, res, groupId, _auth) {
 
   if (current.length !== ids.length) {
     return res.status(409).json({
-      error: 'orderedIds length does not match current uploads — refresh and retry',
+      error: 'orderedIds length does not match current uploads. refresh and retry',
       expected: current.length,
       got: ids.length,
     });
   }
   const currentSet = new Set(current);
   if (!ids.every(id => currentSet.has(id))) {
-    return res.status(409).json({ error: 'orderedIds set does not match current uploads — refresh and retry' });
+    return res.status(409).json({ error: 'orderedIds set does not match current uploads. refresh and retry' });
   }
 
   // Atomic transaction: write each new position.

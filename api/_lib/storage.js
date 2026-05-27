@@ -1,4 +1,4 @@
-// Local-disk file storage. Replaces the R2 module — same function names,
+// Local-disk file storage. Replaces the R2 module - same function names,
 // same shape, just backed by /uploads on disk.
 
 import fs from 'node:fs/promises';
@@ -10,7 +10,7 @@ export const UPLOADS_ROOT = process.env.UPLOADS_DIR
 
 fssync.mkdirSync(UPLOADS_ROOT, { recursive: true });
 
-/** Public URL for a stored object — served via Express static. */
+/** Public URL for a stored object - served via Express static. */
 export function publicUrlFor(key) {
   return `/uploads/${key}`;
 }
@@ -19,7 +19,7 @@ export function publicUrlFor(key) {
 export async function saveBlob(key, srcPath) {
   const dest = path.join(UPLOADS_ROOT, key);
   await fs.mkdir(path.dirname(dest), { recursive: true });
-  // rename() works only on the same filesystem — fall back to copy+unlink.
+  // rename() works only on the same filesystem - fall back to copy+unlink.
   try {
     await fs.rename(srcPath, dest);
   } catch (e) {
@@ -40,5 +40,5 @@ export async function deleteBlob(key) {
   }
 }
 
-/** True when configured — local fs is always available, so always true. */
+/** True when configured - local fs is always available, so always true. */
 export function storageReady() { return true; }

@@ -1,4 +1,4 @@
--- r/PassportBros schema (SQLite). Idempotent — safe to re-run.
+-- r/PassportBros schema (SQLite). Idempotent - safe to re-run.
 
 CREATE TABLE IF NOT EXISTS groups (
   id          TEXT PRIMARY KEY,
