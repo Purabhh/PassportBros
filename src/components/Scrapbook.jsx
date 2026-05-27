@@ -332,7 +332,11 @@ export default function Scrapbook({
 function CountryGallery({ country, me, onClose, onUpload, onDelete, onReorder }) {
   const fileInputRef = useRef(null);
   const [busy, setBusy] = useState(false);
-  const [progress, setProgress] = useState(null);   // {idx, total, filename}
+  // Track both file-level position ("3 of 7") and byte-level fraction
+  // ("45% of video.mp4") so big uploads on slow connections don't look
+  // frozen. pct stays 0..1; the bar is purely cosmetic until the XHR's
+  // progress event fires.
+  const [progress, setProgress] = useState(null);   // {idx, total, filename, pct, sizeMB}
   const [error, setError] = useState(null);
 
   // Local copy of the upload list that the DnD context rearranges instantly
@@ -373,7 +377,8 @@ function CountryGallery({ country, me, onClose, onUpload, onDelete, onReorder })
 
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
-      setProgress({ idx: i + 1, total: files.length, filename: file.name });
+      const sizeMB = file.size / (1024 * 1024);
+      setProgress({ idx: i + 1, total: files.length, filename: file.name, pct: 0, sizeMB });
 
       // Pre-validate videos client-side so we don't burn an upload on a
       // file the server will reject.
@@ -391,7 +396,14 @@ function CountryGallery({ country, me, onClose, onUpload, onDelete, onReorder })
         }
       }
 
-      const result = await onUpload(country.code, file, { durationSec });
+      const result = await onUpload(country.code, file, {
+        durationSec,
+        // XHR progress events fire frequently — throttle to whole-percent
+        // changes so React isn't re-rendering 100x/sec on a fast LAN.
+        onProgress: (frac) => setProgress(p => p && p.idx === i + 1
+          ? (Math.floor(frac * 100) === Math.floor((p.pct || 0) * 100) ? p : { ...p, pct: frac })
+          : p),
+      });
       if (!result?.ok) {
         setError(`"${file.name}" failed: ${result?.error || 'unknown error'}`);
       }
@@ -447,11 +459,30 @@ function CountryGallery({ country, me, onClose, onUpload, onDelete, onReorder })
           disabled={busy}
         >
           {busy
-            ? (progress ? `uploading ${progress.idx} / ${progress.total} — ${progress.filename}` : 'uploading…')
+            ? (progress ? `uploading ${progress.idx} / ${progress.total}` : 'uploading…')
             : '＋ add photos or videos'}
         </button>
         <span className="bs-upload-hint">videos up to 5:00 · drag the grip to reorder · first slot = country cover</span>
       </div>
+      {/* progress bar — only shown while a file is actively transferring.
+         The label shows filename + size in MB + percent so a friend uploading
+         a 200 MB phone video over LTE can see something is happening. */}
+      {busy && progress && (
+        <div className="bs-upload-progress">
+          <div className="bs-upload-progress-row">
+            <span className="bs-upload-progress-name">
+              {progress.filename}
+              {progress.sizeMB >= 0.05 && (
+                <span className="bs-upload-progress-size"> · {progress.sizeMB.toFixed(progress.sizeMB < 10 ? 1 : 0)} MB</span>
+              )}
+            </span>
+            <span className="bs-upload-progress-pct">{Math.round((progress.pct || 0) * 100)}%</span>
+          </div>
+          <div className="bs-upload-progress-track">
+            <div className="bs-upload-progress-fill" style={{ width: `${Math.round((progress.pct || 0) * 100)}%` }} />
+          </div>
+        </div>
+      )}
       {error && <p className="bs-upload-error">{error}</p>}
 
       {/* gallery */}
@@ -787,6 +818,44 @@ const CSS = `
 .bs-upload-btn:disabled { opacity:0.7; cursor:wait; }
 .bs-upload-hint { font-family:'JetBrains Mono',monospace; font-size:10px; letter-spacing:0.2em; color:rgba(245,231,196,0.5); text-transform:uppercase; }
 .bs-upload-error { margin:14px 0 0; padding:10px 14px; background:rgba(122,26,26,0.45); border:1px solid rgba(220,53,69,0.45); color:#f5c2c7; font-family:'JetBrains Mono',monospace; font-size:11px; letter-spacing:0.1em; }
+
+/* ── upload progress bar ────────────────────────────────────────────
+   Visible while an XHR is mid-flight. The fill bar uses width: %  driven
+   by xhr.upload.onprogress so a phone uploading a long video over LTE
+   has a believable signal that the request is actually doing something. */
+.bs-upload-progress {
+  margin-top:10px; padding:10px 14px;
+  background:rgba(20,8,8,0.3);
+  border:1px solid rgba(212,175,55,0.35);
+  border-left:3px solid #d4af37;
+}
+.bs-upload-progress-row {
+  display:flex; align-items:baseline; justify-content:space-between; gap:12px;
+  font-family:'JetBrains Mono',monospace; font-size:10px;
+  letter-spacing:0.18em; text-transform:uppercase;
+  color:rgba(245,231,196,0.85);
+  margin-bottom:6px;
+}
+.bs-upload-progress-name {
+  text-overflow:ellipsis; overflow:hidden; white-space:nowrap;
+  flex:1; min-width:0;
+}
+.bs-upload-progress-size { color:rgba(245,231,196,0.5); }
+.bs-upload-progress-pct {
+  flex-shrink:0; color:#d4af37; font-weight:600;
+  font-variant-numeric:tabular-nums;
+}
+.bs-upload-progress-track {
+  height:4px; background:rgba(20,8,8,0.55);
+  border:1px solid rgba(212,175,55,0.15);
+  overflow:hidden;
+}
+.bs-upload-progress-fill {
+  height:100%;
+  background:linear-gradient(90deg, #d4af37, #f0c659);
+  transition:width 0.2s linear;
+  box-shadow:0 0 8px rgba(212,175,55,0.4);
+}
 
 /* ── gallery ────────────────────────────────────────────────────── */
 .bs-gallery { display:grid; grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); gap:22px; margin-top:32px; }

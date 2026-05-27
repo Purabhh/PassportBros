@@ -45,6 +45,9 @@ export default function GroupHome() {
   }, [member, data?.group, groupId]);
 
   // Upload pipeline: single multipart POST → server saves to disk + db → refetch.
+  // The optional onProgress callback is invoked with a 0..1 fraction for the
+  // file currently being sent — used by the gallery to render a progress bar
+  // so big-video uploads over LTE don't look frozen.
   const handleUpload = useCallback(async (countryCode, file, metadata) => {
     try {
       await uploadFile({
@@ -53,6 +56,7 @@ export default function GroupHome() {
         countryCode,
         file,
         durationSec: metadata?.durationSec ?? null,
+        onProgress: metadata?.onProgress,
       });
       await loadData();
       return { ok: true };
@@ -86,7 +90,16 @@ export default function GroupHome() {
   }, [groupId, member?.token, loadData]);
 
   function handleLeave() {
-    if (!confirm('Leave this group on this device? Your uploads stay; you can rejoin with the same link.')) return;
+    // The "rejoin creates a fresh member" trap is real: api.joinGroup always
+    // inserts a new row, so the old uploads stay in the group but become
+    // orphaned — viewable by everyone, no longer deletable by you. Until we
+    // server-side dedupe by device-ID this warning is the lazy fix.
+    const msg =
+      'Leave this group on this device?\n\n' +
+      "Your uploads stay in the group. If you rejoin from the same link, " +
+      "you'll appear as a NEW member — you won't be able to delete or reorder " +
+      'the uploads you made before.';
+    if (!confirm(msg)) return;
     clearMemberFor(groupId);
     nav('/');
   }
