@@ -1,0 +1,350 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>passportbros — og card (1200×630)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,500;0,600;1,400;1,500;1,600;1,700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  /* OG image is rendered at exactly 1200 × 630.
+     Playwright (scripts/build-og.mjs) loads this file at that viewport
+     and screenshots the body as public/og.png. */
+  :root {
+    --cream:   #ede2c4;
+    --cream-2: #f6ecd3;
+    --red:     #7a1a1a;
+    --red-deep:#5a0e08;
+    --red-dk:  #2a0608;
+    --gold:    #d4af37;
+    --gold-dim:#a8853a;
+    --ink:     #2a0808;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    width: 1200px; height: 630px;
+    overflow: hidden;
+    font-family: 'Manrope', system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    /* Departure-terminal background */
+    background:
+      radial-gradient(ellipse at 50% 30%, #7a1a1a 0%, #4a0e08 65%, #2a0608 100%);
+    position: relative;
+  }
+
+  /* Runway dashes top + bottom (gold) */
+  .runway {
+    position: absolute;
+    left: 0; right: 0; height: 2px;
+    background: repeating-linear-gradient(to right,
+      rgba(212,175,55,0.4) 0 18px, transparent 18px 36px);
+  }
+  .runway-top { top: 24px; }
+  .runway-bot { bottom: 24px; }
+
+  /* NOW BOARDING tag */
+  .tag {
+    position: absolute;
+    top: 44px; left: 90px;
+    display: flex; align-items: center; gap: 10px;
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    font-size: 16px;
+    letter-spacing: 0.34em;
+    text-transform: uppercase;
+    color: var(--gold);
+    font-weight: 700;
+  }
+  .tag-dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--gold);
+    box-shadow: 0 0 0 3px rgba(212,175,55,0.25);
+  }
+  .ref-strap {
+    position: absolute;
+    top: 44px; right: 90px;
+    display: flex; align-items: center; gap: 14px;
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    font-size: 14px;
+    letter-spacing: 0.28em;
+    text-transform: uppercase;
+    color: rgba(237,226,196,0.65);
+  }
+  .ref-strap b { color: var(--gold); }
+
+  /* Cream stub — torn-left mask */
+  .stub {
+    position: absolute;
+    top: 90px; bottom: 70px; left: 70px; right: 70px;
+    background-color: var(--cream);
+    color: var(--ink);
+    box-shadow: 0 30px 60px rgba(0,0,0,0.55);
+    background-image:
+      radial-gradient(ellipse at 30% 0%, #f6ecd3 0%, transparent 60%),
+      repeating-linear-gradient(0deg, rgba(58,10,8,0.022) 0 1px, transparent 1px 3px);
+    /* scallop the left edge */
+    --notch: 22px;
+    -webkit-mask: radial-gradient(circle at 0 var(--notch), transparent 11px, #000 11.5px) 0 0 / 100% calc(2 * var(--notch));
+            mask: radial-gradient(circle at 0 var(--notch), transparent 11px, #000 11.5px) 0 0 / 100% calc(2 * var(--notch));
+  }
+  /* The inside of the stub uses a perforation guide near the torn edge */
+  .perf {
+    position: absolute;
+    left: 18px; top: 36px; bottom: 36px;
+    width: 1px;
+    background: repeating-linear-gradient(to bottom,
+      rgba(58,10,8,0.5) 0 8px, transparent 8px 16px);
+  }
+  .inner {
+    position: absolute;
+    top: 40px; bottom: 36px; left: 80px; right: 60px;
+    display: flex; flex-direction: column;
+  }
+  .mid {
+    flex: 1;
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 40px;
+    min-height: 0;
+  }
+  .head, .bot { flex-shrink: 0; }
+
+  /* ── HEADER ROW ──────────────────────────────── */
+  .head {
+    display: flex; justify-content: space-between; align-items: flex-start;
+    gap: 28px;
+    padding-bottom: 14px;
+    border-bottom: 1.5px dashed rgba(42,8,8,0.32);
+  }
+  .head-left { min-width: 0; flex: 1; }
+  .brand {
+    font-family: 'Cormorant Garamond', Georgia, serif;
+    font-style: italic;
+    font-weight: 500;
+    font-size: 116px;
+    line-height: 0.92;
+    color: var(--red);
+    letter-spacing: -0.015em;
+    white-space: nowrap;
+  }
+  .brand-sub {
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    font-size: 15px;
+    letter-spacing: 0.32em;
+    text-transform: uppercase;
+    color: rgba(42,8,8,0.6);
+    margin-top: 10px;
+  }
+  .ref-block {
+    text-align: right;
+    margin-top: 18px;
+    flex-shrink: 0;
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+  }
+  .ref-block .l {
+    font-size: 11px;
+    letter-spacing: 0.28em;
+    text-transform: uppercase;
+    color: rgba(42,8,8,0.55);
+  }
+  .ref-block .v {
+    font-size: 20px;
+    letter-spacing: 0.2em;
+    color: var(--red);
+    font-weight: 700;
+    margin-top: 2px;
+  }
+  .ref-block .gate {
+    margin-top: 10px;
+    font-size: 12px;
+    letter-spacing: 0.24em;
+    text-transform: uppercase;
+    color: rgba(42,8,8,0.55);
+  }
+
+  /* ── MIDDLE / TAGLINE ───────────────────────── */
+  .mid-original-removed { display: none; }
+  .tagline {
+    font-family: 'Cormorant Garamond', Georgia, serif;
+    font-style: italic;
+    font-weight: 500;
+    font-size: 56px;
+    line-height: 1.04;
+    color: var(--ink);
+    letter-spacing: -0.005em;
+  }
+  .tagline em {
+    color: var(--red);
+    font-style: italic;
+    font-weight: 600;
+  }
+  /* Round wax-style stamp on the right */
+  .stamp {
+    flex-shrink: 0;
+    width: 144px; height: 144px;
+    border: 3px double var(--red);
+    border-radius: 50%;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    transform: rotate(-6deg);
+    background:
+      radial-gradient(circle, transparent 60%, rgba(122,26,26,0.4) 60%, rgba(122,26,26,0.4) 61%, transparent 61%);
+    color: var(--red);
+    text-align: center;
+  }
+  .stamp .t {
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    font-size: 11px;
+    letter-spacing: 0.3em;
+    text-transform: uppercase;
+  }
+  .stamp .big {
+    font-family: 'Cormorant Garamond', Georgia, serif;
+    font-style: italic;
+    font-weight: 700;
+    font-size: 30px;
+    line-height: 1;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+    margin: 3px 0;
+  }
+  .stamp .b {
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    font-size: 10px;
+    letter-spacing: 0.24em;
+    text-transform: uppercase;
+  }
+
+  /* ── BOTTOM ROW: barcode + fineprint ───────── */
+  .bot {
+    display: flex; justify-content: space-between; align-items: flex-end;
+    gap: 24px;
+    border-top: 1.5px dashed rgba(42,8,8,0.32);
+    padding-top: 22px;
+    margin-top: 8px;
+  }
+  .barcode {
+    display: flex; align-items: stretch; gap: 1px;
+    height: 44px;
+  }
+  .barcode span { background: var(--ink); display: inline-block; }
+  .barcode-label {
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    font-size: 12px;
+    letter-spacing: 0.28em;
+    text-transform: uppercase;
+    color: rgba(42,8,8,0.6);
+    margin-top: 6px;
+  }
+  .fineprint {
+    text-align: right;
+    max-width: 540px;
+  }
+  .fineprint .mono {
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    font-size: 13px;
+    letter-spacing: 0.26em;
+    text-transform: uppercase;
+    color: rgba(42,8,8,0.6);
+  }
+  .fineprint .mono b { color: var(--ink); }
+  .fineprint .serif {
+    font-family: 'Cormorant Garamond', Georgia, serif;
+    font-style: italic;
+    font-size: 22px;
+    color: rgba(42,8,8,0.85);
+    margin-top: 6px;
+  }
+  .fineprint .serif em {
+    color: var(--red);
+    font-style: italic;
+    font-weight: 600;
+  }
+
+  /* Perforation circles where the stub "tears off" — at the dashed lines */
+  .perf-circle {
+    position: absolute;
+    width: 22px; height: 22px; border-radius: 50%;
+    background: var(--red-dk);
+    z-index: 2;
+  }
+</style>
+</head>
+<body>
+
+  <div class="runway runway-top"></div>
+  <div class="runway runway-bot"></div>
+
+  <div class="tag">
+    <span class="tag-dot"></span>
+    <span>now boarding</span>
+  </div>
+  <div class="ref-strap">
+    <span>passportbros.app</span>
+    <span style="color: rgba(212,175,55,0.5);">·</span>
+    <span><b>invite only</b></span>
+  </div>
+
+  <div class="stub">
+    <div class="perf"></div>
+
+    <div class="inner">
+      <!-- HEADER -->
+      <div class="head">
+        <div class="head-left">
+          <div class="brand">passportbros</div>
+          <div class="brand-sub">boarding stub · zone 1</div>
+        </div>
+        <div class="ref-block">
+          <div class="l">ref</div>
+          <div class="v">PB-XY9KQT</div>
+          <div class="gate">gate · 04</div>
+        </div>
+      </div>
+
+      <!-- MIDDLE -->
+      <div class="mid">
+        <div class="tagline">
+          a shared scrapbook<br>
+          for <em>friends.</em>
+        </div>
+        <div class="stamp">
+          <div class="t">— invite —</div>
+          <div class="big">only</div>
+          <div class="b">★ passportbros ★</div>
+        </div>
+      </div>
+
+      <!-- BOTTOM -->
+      <div class="bot">
+        <div>
+          <div class="barcode">
+            <!-- ~40 CSS-painted bars -->
+            <span style="width:1px"></span><span style="width:1px"></span><span style="width:2px"></span>
+            <span style="width:1px"></span><span style="width:3px"></span><span style="width:1px"></span>
+            <span style="width:2px"></span><span style="width:1px"></span><span style="width:1px"></span>
+            <span style="width:2px"></span><span style="width:3px"></span><span style="width:1px"></span>
+            <span style="width:2px"></span><span style="width:1px"></span><span style="width:1px"></span>
+            <span style="width:2px"></span><span style="width:1px"></span><span style="width:3px"></span>
+            <span style="width:1px"></span><span style="width:2px"></span><span style="width:1px"></span>
+            <span style="width:1px"></span><span style="width:2px"></span><span style="width:3px"></span>
+            <span style="width:1px"></span><span style="width:1px"></span><span style="width:2px"></span>
+            <span style="width:1px"></span><span style="width:3px"></span><span style="width:1px"></span>
+            <span style="width:2px"></span><span style="width:1px"></span><span style="width:1px"></span>
+            <span style="width:2px"></span><span style="width:3px"></span><span style="width:1px"></span>
+            <span style="width:2px"></span><span style="width:1px"></span>
+          </div>
+          <div class="barcode-label">PB·XY9KQT · ★ STAMPED ★ · 2026</div>
+        </div>
+        <div class="fineprint">
+          <div class="mono">
+            no login · no email · no passwords
+          </div>
+          <div class="serif">
+            your invite link <em>is</em> your access.
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</body>
+</html>
