@@ -717,6 +717,8 @@ const CSS = `
   letter-spacing:0.22em; text-transform:uppercase; color:rgba(212,175,55,0.5);
 }
 
+
+
 /* ── search ─────────────────────────────────────────────────────── */
 .bs-search-row { display:flex; align-items:center; gap:14px; margin-bottom:22px; }
 .bs-search-lbl { font-family:'JetBrains Mono',monospace; font-size:10px; letter-spacing:0.3em; text-transform:uppercase; color:#d4af37; font-weight:500; }
@@ -830,4 +832,71 @@ const CSS = `
 /* ── empty state ────────────────────────────────────────────────── */
 .bs-empty { text-align:center; padding:60px 20px; color:rgba(245,231,196,0.6); font-family:'Cormorant Garamond',serif; font-style:italic; font-size:18px; }
 .bs-empty-mark { font-size:64px; color:rgba(212,175,55,0.4); line-height:1; margin-bottom:12px; }
+/* ── mobile responsiveness ──────────────────────────────────────────
+   The screenshots from a real iPhone showed the wordmark spilling past
+   the right edge, the dragon clipping, and the country-detail's 3-column
+   grid squeezing "shared by the group" into an awkward 3-line ribbon.
+   These rules collapse the layout for narrow viewports while keeping
+   the desktop design unchanged above the breakpoint. */
+@media (max-width: 720px) {
+  .bs-root { padding:24px 14px 56px; }
+  .bs-sky { height:140px; }
+  .bs-dragon-wrap {
+    width:240px; height:111px; top:24px;
+    /* Keep the dragon path within the viewport so the right tail doesn't
+       slide off-screen on narrow devices. */
+    animation-duration:18s;
+  }
+  .bs-frame { margin-top:152px; padding:20px 16px 22px; }
+  .bs-header { flex-direction:column; align-items:flex-start; gap:14px; padding-bottom:14px; }
+  .bs-wordmark { font-size:clamp(44px, 14vw, 72px); }
+  .bs-wordmark-sub { font-size:13px; }
+  .bs-stats { width:100%; justify-content:flex-end; gap:12px; }
+  .bs-stat-coin { width:62px; height:62px; }
+  .bs-stat-coin::before { inset:6px; }
+  .bs-stat-coin::after { inset:13px; }
+  .bs-stat-coin-num { font-size:15px; }
+  .bs-stat-text { font-size:15px; }
+  .bs-stat-text b { font-size:17px; }
+  .bs-stat-text small { font-size:8px; letter-spacing:0.22em; }
+
+  .bs-meta-row { gap:10px; padding-bottom:14px; }
+  .bs-meta-actions { width:100%; flex-wrap:wrap; }
+  .bs-meta-btn { padding:6px 10px; font-size:9px; letter-spacing:0.18em; }
+  .bs-switcher-panel { right:auto; left:0; min-width:200px; max-width:calc(100vw - 40px); }
+
+  .bs-search-row { gap:10px; }
+  .bs-search { flex:1; width:auto; min-width:0; }
+
+  /* country detail view */
+  .bs-detail { padding:24px 14px 56px; }
+  .bs-detail-head {
+    grid-template-columns:1fr; gap:14px; padding:18px;
+    grid-template-areas:
+      'flag'
+      'name'
+      'coin';
+  }
+  .bs-flag-cell { grid-area:flag; width:64px; height:64px; font-size:34px; }
+  .bs-name-stack { grid-area:name; gap:6px; }
+  .bs-name-big { font-size:clamp(44px, 12vw, 72px); }
+  .bs-name-row { font-size:9px; letter-spacing:0.22em; gap:10px; }
+  .bs-name-row span:not(:last-child)::after { margin-left:10px; }
+  .bs-headcoin { grid-area:coin; width:64px; height:64px; justify-self:start; }
+  .bs-headcoin-num { font-size:17px; }
+  .bs-headcoin-lbl { bottom:-16px; font-size:8px; }
+
+  .bs-fortune { font-size:16px; padding:10px 14px; }
+  .bs-fortune small { font-size:9px; letter-spacing:0.22em; }
+
+  .bs-upload-bar { flex-wrap:wrap; gap:10px; padding:12px 14px; margin-top:18px; }
+  .bs-upload-btn { padding:9px 16px; font-size:10px; letter-spacing:0.2em; }
+  .bs-upload-hint { font-size:9px; letter-spacing:0.18em; }
+
+  .bs-gallery { grid-template-columns:repeat(auto-fill, minmax(150px, 1fr)); gap:14px; margin-top:22px; }
+  .bs-item { padding:6px 6px 0; }
+  .bs-item-drag { width:24px; height:24px; opacity:0.5; }
+
+  .bs-back { padding:6px 12px; font-size:9px; letter-spacing:0.22em; margin-bottom:18px; }
+}
 `;
