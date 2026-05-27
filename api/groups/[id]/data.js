@@ -57,7 +57,9 @@ export default async function handler(req, res) {
     durationSec: u.duration_sec,
     position: u.position,
     createdAt: u.created_at,
-    member: u.member_id ? { id: u.member_id, name: u.member_name } : null,
+    // Use the same `displayName` field shape the `members` array and `me`
+    // object use, so the frontend can read it uniformly everywhere.
+    member: u.member_id ? { id: u.member_id, displayName: u.member_name } : null,
   }));
 
   // Group uploads by country for easy per-country rendering.
