@@ -1,6 +1,7 @@
-// Scrapbook.jsx — multi-user shared variant of the H2 Dragonflight design.
-// Renders the country grid; clicking a country opens a gallery of every
-// member's photos and videos for that country, with upload + delete.
+// Scrapbook — the inside of the boarding-pass terminal.
+// Renders the country grid (group home) plus the per-country detail panel.
+// Visuals mirror the boarding-pass landing + invite page so the whole app
+// is one coherent metaphor: a chronicle of stamps you collect with friends.
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
@@ -42,6 +43,21 @@ function useEscape(active, onEsc) {
   }, [active, onEsc]);
 }
 
+// Watches a CSS media query without rerendering on every render.
+function useMedia(query) {
+  const [matches, setMatches] = useState(() =>
+    typeof window !== 'undefined' && window.matchMedia(query).matches
+  );
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const mq = window.matchMedia(query);
+    const fn = e => setMatches(e.matches);
+    mq.addEventListener('change', fn);
+    return () => mq.removeEventListener('change', fn);
+  }, [query]);
+  return matches;
+}
+
 function formatDuration(sec) {
   if (!sec || sec < 0) return '';
   const m = Math.floor(sec / 60);
@@ -67,7 +83,90 @@ function readVideoDuration(file) {
 
 const MAX_VIDEO_SECONDS = 5 * 60;
 
-// ─── main ──────────────────────────────────────────────────────────────
+// Stable PNR-looking ref code derived from the groupId. Same group →
+// same ref every visit, so the boarding stub always agrees with itself.
+// Alphabet skips 0/1/I/L/O/Q for legibility in monospace at small sizes.
+function refFromGroupId(id) {
+  const ALPHA = 'ABCDEFGHJKMNPRSTUVWXYZ23456789';
+  let hash = 5381;
+  for (const c of String(id || '')) hash = ((hash << 5) + hash + c.charCodeAt(0)) >>> 0;
+  let s = 'PB-';
+  for (let i = 0; i < 6; i++) {
+    s += ALPHA[hash % ALPHA.length];
+    hash = Math.floor(hash / ALPHA.length) + (i + 1) * 17;
+  }
+  return s;
+}
+
+// Avatar tone derived from displayName so the same person renders the same
+// color in every group and in every place the avatar shows up.
+const AVATAR_TONES = [
+  'linear-gradient(135deg,#f5c89a,#c84a2a 60%,#5a0e08)',
+  'linear-gradient(135deg,#e6c089,#b94022 55%,#3a1414)',
+  'linear-gradient(135deg,#f0d2a0,#d4af37 55%,#7a1a1a)',
+  'linear-gradient(135deg,#e8c79e,#a83838 55%,#4a0e08)',
+  'linear-gradient(135deg,#f3d29d,#cf6a2a 55%,#5a1a14)',
+];
+function avatarTone(name) {
+  let h = 0;
+  for (const c of String(name || '')) h = (h * 31 + c.charCodeAt(0)) >>> 0;
+  return AVATAR_TONES[h % AVATAR_TONES.length];
+}
+
+// Cosine date format ("14 mar · 2026") so it fits the stub aesthetic.
+function shortDate(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  const day = String(d.getDate()).padStart(2, '0');
+  const month = d.toLocaleString('en', { month: 'short' }).toLowerCase();
+  return `${day} ${month} · ${d.getFullYear()}`;
+}
+
+// ─── atomic visuals ─────────────────────────────────────────────────────
+
+function PulseDot({ tone = 'gold' }) {
+  return <span className={`bs-pulse-dot bs-pulse-${tone}`} />;
+}
+
+function Avatar({ name, size = 32 }) {
+  const initial = (String(name || '?').trim()[0] || '?').toUpperCase();
+  return (
+    <span
+      className="bs-avatar"
+      title={name}
+      style={{ width: size, height: size, fontSize: Math.round(size * 0.42), background: avatarTone(name) }}
+    >
+      {initial}
+    </span>
+  );
+}
+
+function Barcode({ short }) {
+  // Fixed widths so the strip looks engraved rather than randomly jittery
+  // on every re-render. Two lengths (~38 bars wide, or ~24 if short=true).
+  const widths = short
+    ? [1,1,2,1,3,1,2,1,1,2,3,1,2,1,1,2,1,3,1,2,1,1,2,3]
+    : [1,1,2,1,3,1,2,1,1,2,3,1,2,1,1,2,1,3,1,2,1,1,2,3,1,1,2,1,3,1,2,1,1,2,3,1,2,1];
+  return (
+    <div className="bs-barcode">
+      {widths.map((w, i) => <span key={i} className="bs-bar" style={{ width: w + 'px' }} />)}
+    </div>
+  );
+}
+
+function CornerBrackets() {
+  return (
+    <>
+      <span className="bs-tile-corner bs-tile-corner-tl" />
+      <span className="bs-tile-corner bs-tile-corner-tr" />
+      <span className="bs-tile-corner bs-tile-corner-bl" />
+      <span className="bs-tile-corner bs-tile-corner-br" />
+    </>
+  );
+}
+
+// ─── main scrapbook ─────────────────────────────────────────────────────
 
 export default function Scrapbook({
   group, me, members, countries, totals,
@@ -80,9 +179,13 @@ export default function Scrapbook({
   const [switcherOpen, setSwitcherOpen] = useState(false);
   const switcherRef = useRef(null);
 
-  // Memberships excluding the current group, sorted by name. The current
-  // group is excluded because the button to "switch to where I already am"
-  // is a no-op and clutters the menu.
+  const refCode = useMemo(() => refFromGroupId(group.id), [group.id]);
+  const stats = useStats(countries);
+  const filtered = useFiltered(countries, query);
+  const memoryStr = String(stats.uploads).padStart(3, '0');
+
+  // Memberships excluding the current group, sorted by name, so the switcher
+  // doesn't redundantly list "switch to where I already am."
   const otherGroups = useMemo(() => (memberships || [])
     .filter(m => m.groupId !== group.id)
     .sort((a, b) => (a.groupName || '').localeCompare(b.groupName || '')),
@@ -105,12 +208,11 @@ export default function Scrapbook({
       document.removeEventListener('keydown', onKey);
     };
   }, [switcherOpen]);
-  const stats = useStats(countries);
-  const filtered = useFiltered(countries, query);
+
   useEscape(!!selected, () => setSelected(null));
 
-  // Keep `selected` in sync with the latest countries prop (so uploads
-  // appear in the open detail view after a refetch).
+  // Keep `selected` in sync with the latest countries prop (so uploads appear
+  // in the open detail view after a refetch).
   useEffect(() => {
     if (!selected) return;
     const fresh = countries.find(c => c.code === selected.code);
@@ -142,14 +244,11 @@ export default function Scrapbook({
         ok = document.execCommand('copy');
         document.body.removeChild(ta);
       }
-    } catch {
-      ok = false;
-    }
+    } catch { ok = false; }
     if (ok) {
       setCopied(true);
       setTimeout(() => setCopied(false), 1800);
     } else {
-      // Last-resort: surface the URL so the user can copy manually.
       window.prompt('copy this invite link:', inviteUrl);
     }
   }
@@ -158,158 +257,224 @@ export default function Scrapbook({
     <div className="bs-root">
       <style>{CSS}</style>
 
-      {/* ── DRAGON SKY ───────────────────────────────────────────────── */}
-      <div className="bs-sky">
-        <div className="bs-stars">
-          {Array.from({ length: 20 }).map((_, i) => (
-            <span key={i} className="bs-star" style={{
-              left: ((i * 37) % 100) + '%',
-              top: ((i * 23) % 100) + '%',
-              animationDelay: i * 0.17 + 's',
-            }} />
-          ))}
+      <div className="bs-runway bs-runway-top" />
+      <div className="bs-runway bs-runway-bottom" />
+
+      <div className="bs-wrap">
+        <div className="bs-now-boarding">
+          <PulseDot tone="gold" />
+          <span>terminal · group home</span>
         </div>
-        {[0, 0.8, 1.6, 2.4].map((d, i) => (
-          <span key={i} className="bs-trail" style={{ animationDelay: d + 's' }} />
-        ))}
-        <div className="bs-dragon-wrap">
-          <img className="bs-dragon-img" src="/dragon.png" alt="" aria-hidden="true" />
-        </div>
-      </div>
 
-      {/* ── FRAMED CONTENT ──────────────────────────────────────────── */}
-      <div className="bs-frame">
-        <span className="bs-corner-bl" />
-        <span className="bs-corner-br" />
+        <div className="bs-stub">
+          <div className="bs-stub-perf" />
 
-        <header className="bs-header">
-          <div className="bs-brand">
-            <span className="bs-brand-mark">r/passportbros · {group.name}</span>
-            <h1 className="bs-wordmark">passportbros</h1>
-            <span className="bs-wordmark-sub">a shared chronicle of where we've been</span>
-          </div>
-          <div className="bs-stats">
-            <div className="bs-stat-text">
-              <b>{stats.visited}/{stats.total}</b>
-              <small>countries visited</small>
-            </div>
-            <div className="bs-stat-coin" title={`${stats.uploads} uploads`}>
-              <span className="bs-stat-coin-num">{String(stats.uploads).padStart(3, '0')}</span>
-            </div>
-          </div>
-        </header>
-
-        {/* meta row: members + invite + leave */}
-        <div className="bs-meta-row">
-          <div className="bs-members" title={members.map(m => m.displayName).join(', ')}>
-            <span className="bs-meta-label">crew</span>
-            <span className="bs-meta-value">
-              {members.length === 1 ? `you (${me.displayName})` :
-                `${members.length} · including you (${me.displayName})`}
-            </span>
-          </div>
-          <div className="bs-meta-actions">
-            <div className="bs-switcher" ref={switcherRef}>
-              <button
-                className="bs-meta-btn"
-                aria-haspopup="true"
-                aria-expanded={switcherOpen}
-                onClick={() => setSwitcherOpen(o => !o)}
-              >
-                {/* The button shows the current group's name so it doubles as a
-                    "you are here" indicator. The ▾ telegraphs the dropdown. */}
-                ✈ {group.name} ▾
-              </button>
-              {switcherOpen && (
-                <div className="bs-switcher-panel" role="menu">
-                  <div className="bs-switcher-section">where to</div>
-                  {otherGroups.length === 0 && (
-                    <div className="bs-switcher-empty">
-                      this is your only scrapbook<br/>
-                      <small>create or join another below</small>
-                    </div>
-                  )}
-                  {otherGroups.map(g => (
-                    <button
-                      key={g.groupId}
-                      className="bs-switcher-row"
-                      role="menuitem"
-                      onClick={() => {
-                        setSwitcherOpen(false);
-                        if (onSwitchGroup) onSwitchGroup(g.groupId);
-                      }}
-                    >
-                      <span className="bs-switcher-name">
-                        {g.groupName || '(unnamed scrapbook)'}
-                      </span>
-                      <span className="bs-switcher-sub">as {g.displayName || '—'}</span>
-                    </button>
-                  ))}
-                  <div className="bs-switcher-divider" />
-                  <a
-                    className="bs-switcher-row bs-switcher-new"
-                    href="/"
-                    role="menuitem"
-                  >
-                    <span className="bs-switcher-name">+ new scrapbook</span>
-                    <span className="bs-switcher-sub">create or join another</span>
-                  </a>
+          <div className="bs-stub-inner">
+            {/* HEADER strip */}
+            <div className="bs-stub-head">
+              <div className="bs-stub-brand">
+                <div className="bs-stub-wordmark-row">
+                  <span className="bs-stub-wordmark">passportbros</span>
+                  <span className="bs-stub-chronicle">· the chronicle</span>
                 </div>
-              )}
+                <div className="bs-stub-zone">passport · zone 1</div>
+              </div>
+              <div className="bs-stub-meta">
+                <div className="bs-stub-meta-label">ref</div>
+                <div className="bs-stub-meta-ref">{refCode}</div>
+                <div className="bs-stub-meta-label bs-stub-meta-gate">gate · 04</div>
+              </div>
             </div>
-            <button className="bs-meta-btn" onClick={copyInvite}>
-              {copied ? '✓ link copied' : '⌘ copy invite link'}
-            </button>
-            <button className="bs-meta-btn bs-meta-btn-quiet" onClick={onLeave}>
-              leave group
-            </button>
-          </div>
-        </div>
 
-        <div className="bs-search-row">
-          <span className="bs-search-lbl">seek</span>
-          <input
-            className="bs-search"
-            placeholder="a destination…"
-            value={query}
-            onChange={e => setQuery(e.target.value)}
-          />
-        </div>
-
-        <div className="bs-grid">
-          {filtered.map((c, i) => {
-            const visited = c.uploads.length > 0;
-            const cover = visited ? c.uploads[0] : null;
-            const coverIsVideo = cover?.kind === 'video';
-            return (
-              <button
-                key={c.code}
-                onClick={() => setSelected(c)}
-                className={`bs-tile ${visited ? 'bs-tile-visited' : 'bs-tile-empty'}`}
-                style={{ animationDelay: i * 16 + 'ms' }}
-                aria-label={c.name}
-              >
-                <div className="bs-tile-inner">
-                  {visited && cover?.url && (
-                    coverIsVideo ? (
-                      <video className="bs-tile-photo" src={cover.url} muted playsInline preload="metadata" />
-                    ) : (
-                      <div className="bs-tile-photo" style={{ backgroundImage: `url(${cover.url})` }} />
-                    )
-                  )}
-                  <span className="bs-corner-tile-bl" />
-                  <span className="bs-corner-tile-br" />
-                  {visited && (
-                    <span className="bs-badge">×{c.uploads.length}{coverIsVideo ? ' ▶' : ''}</span>
-                  )}
-                  <span className="bs-name">
-                    {c.name}
-                    {!visited && <span className="bs-name-sub">unvisited</span>}
+            {/* TITLE + coin row */}
+            <div className="bs-title-row">
+              <div className="bs-title-block">
+                <div className="bs-title-label">destination</div>
+                <h1 className="bs-title">{group.name}</h1>
+                <div className="bs-crew">
+                  <div className="bs-avatar-stack">
+                    {members.slice(0, 5).map(m => (
+                      <Avatar key={m.id} name={m.displayName} size={32} />
+                    ))}
+                  </div>
+                  <span className="bs-crew-label">
+                    crew · <b>{members.length}</b> ·{' '}
+                    {members.length === 1 ? `just you (${me.displayName})` : `including you (${me.displayName})`}
                   </span>
                 </div>
+              </div>
+
+              <div className="bs-coin-row">
+                <div className="bs-coin-meta">
+                  <div className="bs-coin-meta-label">memories</div>
+                  <div className="bs-coin-meta-big">{memoryStr}</div>
+                  <div className="bs-coin-meta-label">in the chronicle</div>
+                </div>
+                <div className="bs-coin" title={`${stats.visited} of ${stats.total} countries stamped`}>
+                  <span className="bs-coin-stamped">★ STAMPED ★</span>
+                  <span className="bs-coin-num">{stats.visited}</span>
+                  <span className="bs-coin-of">/ {stats.total}</span>
+                </div>
+              </div>
+            </div>
+
+            {/* ACTIONS row */}
+            <div className="bs-actions">
+              <div className="bs-switcher" ref={switcherRef}>
+                <button
+                  className="bs-stub-btn bs-stub-btn-paper bs-switcher-btn"
+                  aria-haspopup="true"
+                  aria-expanded={switcherOpen}
+                  onClick={() => setSwitcherOpen(o => !o)}
+                >
+                  <span className="bs-stub-btn-plane">✈</span>
+                  <span className="bs-stub-btn-italic">{group.name}</span>
+                  <span className="bs-stub-btn-arrow">▾</span>
+                </button>
+                {switcherOpen && (
+                  <div className="bs-switcher-panel" role="menu">
+                    <div className="bs-switcher-section">where to</div>
+                    {otherGroups.length === 0 && (
+                      <div className="bs-switcher-empty">
+                        this is your only chronicle<br/>
+                        <small>create or join another below</small>
+                      </div>
+                    )}
+                    {otherGroups.map(g => (
+                      <button
+                        key={g.groupId}
+                        className="bs-switcher-row"
+                        role="menuitem"
+                        onClick={() => {
+                          setSwitcherOpen(false);
+                          if (onSwitchGroup) onSwitchGroup(g.groupId);
+                        }}
+                      >
+                        <span className="bs-switcher-name">{g.groupName || '(unnamed chronicle)'}</span>
+                        <span className="bs-switcher-sub">as {g.displayName || '—'}</span>
+                      </button>
+                    ))}
+                    <div className="bs-switcher-divider" />
+                    <a
+                      className="bs-switcher-row bs-switcher-new"
+                      href="/"
+                      role="menuitem"
+                    >
+                      <span className="bs-switcher-name">+ new chronicle</span>
+                      <span className="bs-switcher-sub">create or join another</span>
+                    </a>
+                  </div>
+                )}
+              </div>
+
+              <button className="bs-stub-btn" onClick={copyInvite}>
+                <span className="bs-stub-btn-glyph">⌘</span>
+                <span>{copied ? 'link copied' : 'copy invite link'}</span>
               </button>
-            );
-          })}
+
+              <button className="bs-stub-btn bs-stub-btn-paper" onClick={onLeave}>
+                <span className="bs-stub-btn-glyph">↗</span>
+                <span>leave group</span>
+              </button>
+            </div>
+
+            {/* SEEK input */}
+            <div className="bs-search-row">
+              <span className="bs-search-lbl">seek</span>
+              <input
+                className="bs-search"
+                placeholder="seek a destination…"
+                value={query}
+                onChange={e => setQuery(e.target.value)}
+                spellCheck={false}
+              />
+              {query && (
+                <button className="bs-search-clear" onClick={() => setQuery('')}>clear</button>
+              )}
+            </div>
+
+            {/* MANIFEST — country grid */}
+            <div className="bs-manifest">
+              <div className="bs-manifest-head">
+                <span>— manifest —</span>
+                <span><b>{filtered.length}</b> of {stats.total} countries</span>
+              </div>
+
+              <div className="bs-grid" role="grid" aria-label="countries">
+                {filtered.map((c, i) => {
+                  const visited = c.uploads.length > 0;
+                  const cover = visited ? c.uploads[0] : null;
+                  const coverIsVideo = cover?.kind === 'video';
+                  return (
+                    <button
+                      key={c.code}
+                      onClick={() => setSelected(c)}
+                      className={`bs-tile ${visited ? 'bs-tile-visited' : 'bs-tile-empty'}`}
+                      style={{ animationDelay: i * 14 + 'ms' }}
+                      aria-label={c.name}
+                    >
+                      {visited && cover?.url && (
+                        coverIsVideo ? (
+                          <video className="bs-tile-cover" src={cover.url} muted playsInline preload="metadata" />
+                        ) : (
+                          <div className="bs-tile-cover" style={{ backgroundImage: `url(${cover.url})` }} />
+                        )
+                      )}
+                      {visited && <div className="bs-tile-tint" />}
+
+                      <span className="bs-tile-code">{c.code.toUpperCase()}</span>
+                      {visited && (
+                        <span className="bs-tile-badge">×{c.uploads.length}{coverIsVideo ? ' ▶' : ''}</span>
+                      )}
+
+                      <div className="bs-tile-foot">
+                        <div className="bs-tile-name">{c.name}</div>
+                        <div className="bs-tile-sub">
+                          {visited
+                            ? `stamped · ${c.uploads.length} ${c.uploads.length === 1 ? 'entry' : 'entries'}`
+                            : 'unvisited'}
+                        </div>
+                      </div>
+
+                      <CornerBrackets />
+                    </button>
+                  );
+                })}
+              </div>
+
+              {filtered.length === 0 && (
+                <div className="bs-no-match">no countries match "{query}".</div>
+              )}
+            </div>
+
+            {/* STATS FOOTER */}
+            <div className="bs-stub-foot">
+              <div className="bs-foot-stat">
+                <div className="bs-foot-label">visited</div>
+                <div className="bs-foot-big">
+                  {stats.visited}<span className="bs-foot-of">/{stats.total}</span>
+                </div>
+                <div className="bs-foot-sub">countries · stamped</div>
+              </div>
+              <div className="bs-foot-sep" />
+              <div className="bs-foot-stat">
+                <div className="bs-foot-label">memories</div>
+                <div className="bs-foot-big">{memoryStr}</div>
+                <div className="bs-foot-sub">photos · videos</div>
+              </div>
+              <div className="bs-foot-sep" />
+              <div className="bs-foot-barcode-block">
+                <Barcode />
+                <div className="bs-foot-sub bs-foot-sub-r">
+                  {refCode} · {memoryStr} · {stats.visited}/{stats.total}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="bs-fineprint">
+          a private corner of the world · invite only · esc to clear search
         </div>
       </div>
 
@@ -317,6 +482,8 @@ export default function Scrapbook({
         <CountryGallery
           country={selected}
           me={me}
+          members={members}
+          groupRef={refCode}
           onClose={() => setSelected(null)}
           onUpload={onUpload}
           onDelete={onDelete}
@@ -327,16 +494,16 @@ export default function Scrapbook({
   );
 }
 
-// ─── per-country gallery (unlimited photos + videos) ──────────────────
+// ─── per-country detail (slides in from the right) ──────────────────────
 
-function CountryGallery({ country, me, onClose, onUpload, onDelete, onReorder }) {
+function CountryGallery({ country, me, members, groupRef, onClose, onUpload, onDelete, onReorder }) {
   const fileInputRef = useRef(null);
   const [busy, setBusy] = useState(false);
   // Track both file-level position ("3 of 7") and byte-level fraction
   // ("45% of video.mp4") so big uploads on slow connections don't look
   // frozen. pct stays 0..1; the bar is purely cosmetic until the XHR's
   // progress event fires.
-  const [progress, setProgress] = useState(null);   // {idx, total, filename, pct, sizeMB}
+  const [progress, setProgress] = useState(null); // { idx, total, filename, pct, sizeMB }
   const [error, setError] = useState(null);
 
   // Local copy of the upload list that the DnD context rearranges instantly
@@ -398,8 +565,8 @@ function CountryGallery({ country, me, onClose, onUpload, onDelete, onReorder })
 
       const result = await onUpload(country.code, file, {
         durationSec,
-        // XHR progress events fire frequently — throttle to whole-percent
-        // changes so React isn't re-rendering 100x/sec on a fast LAN.
+        // XHR progress events fire constantly — throttle to whole-percent
+        // changes so React isn't re-rendering 100×/sec on a fast LAN.
         onProgress: (frac) => setProgress(p => p && p.idx === i + 1
           ? (Math.floor(frac * 100) === Math.floor((p.pct || 0) * 100) ? p : { ...p, pct: frac })
           : p),
@@ -412,130 +579,207 @@ function CountryGallery({ country, me, onClose, onUpload, onDelete, onReorder })
     setProgress(null);
   }
 
+  const count = country.uploads.length;
+  const memoryStr = String(count).padStart(2, '0');
+
   return (
-    <div className="bs-detail">
-      <button className="bs-back" onClick={onClose}>← back to the chronicle</button>
+    <div className="bs-detail" role="dialog" aria-modal="true">
+      <div className="bs-runway bs-runway-top" />
+      <div className="bs-runway bs-runway-bottom" />
 
-      <div className="bs-detail-head">
-        <div className="bs-flag-cell">{country.flag}</div>
-        <div className="bs-name-stack">
-          <h2 className="bs-name-big">{country.name}</h2>
-          <div className="bs-name-row">
-            <span>{country.code.toUpperCase()}</span>
-            <span>{country.uploads.length} {country.uploads.length === 1 ? 'entry' : 'entries'}</span>
-            <span>shared by the group</span>
-          </div>
+      <div className="bs-wrap">
+        <div className="bs-detail-topbar">
+          <button className="bs-back" onClick={onClose}>
+            <span>←</span> back to the chronicle
+          </button>
+          <span className="bs-detail-esc">esc to close</span>
         </div>
-        <div className="bs-headcoin">
-          <span className="bs-headcoin-num">{String(country.uploads.length).padStart(2, '0')}</span>
-          <span className="bs-headcoin-lbl">sealed</span>
-        </div>
-      </div>
 
-      <div className="bs-fortune">
-        <em>★</em>{' '}
-        {country.uploads.length > 0
-          ? 'safe travels · fair winds'
-          : 'an unvisited place — be the first to write its entry'}{' '}
-        <em>★</em>
-        <small>
-          {country.uploads.length} {country.uploads.length === 1 ? 'memory' : 'memories'} from the group
-        </small>
-      </div>
+        <div className="bs-stub">
+          <div className="bs-stub-perf" />
 
-      {/* upload bar */}
-      <div className="bs-upload-bar">
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept="image/*,video/*"
-          multiple
-          style={{ display: 'none' }}
-          onChange={handleFiles}
-        />
-        <button
-          className="bs-upload-btn"
-          onClick={() => fileInputRef.current?.click()}
-          disabled={busy}
-        >
-          {busy
-            ? (progress ? `uploading ${progress.idx} / ${progress.total}` : 'uploading…')
-            : '＋ add photos or videos'}
-        </button>
-        <span className="bs-upload-hint">videos up to 5:00 · drag the grip to reorder · first slot = country cover</span>
-      </div>
-      {/* progress bar — only shown while a file is actively transferring.
-         The label shows filename + size in MB + percent so a friend uploading
-         a 200 MB phone video over LTE can see something is happening. */}
-      {busy && progress && (
-        <div className="bs-upload-progress">
-          <div className="bs-upload-progress-row">
-            <span className="bs-upload-progress-name">
-              {progress.filename}
-              {progress.sizeMB >= 0.05 && (
-                <span className="bs-upload-progress-size"> · {progress.sizeMB.toFixed(progress.sizeMB < 10 ? 1 : 0)} MB</span>
-              )}
-            </span>
-            <span className="bs-upload-progress-pct">{Math.round((progress.pct || 0) * 100)}%</span>
-          </div>
-          <div className="bs-upload-progress-track">
-            <div className="bs-upload-progress-fill" style={{ width: `${Math.round((progress.pct || 0) * 100)}%` }} />
-          </div>
-        </div>
-      )}
-      {error && <p className="bs-upload-error">{error}</p>}
+          <div className="bs-stub-inner">
+            {/* ARRIVAL HEADER */}
+            <div className="bs-arrival">
+              <span className="bs-arrival-stamp bs-arrival-stamp-tl">★ arrival ★</span>
+              <span className="bs-arrival-stamp bs-arrival-stamp-br">form pb·{country.code}</span>
 
-      {/* gallery */}
-      {items.length === 0 ? (
-        <div className="bs-empty">
-          <div className="bs-empty-mark">︵</div>
-          <p>no entries yet — click the button above to add the first photo or video</p>
-        </div>
-      ) : (
-        <DndContext
-          sensors={sensors}
-          collisionDetection={closestCenter}
-          onDragEnd={handleDragEnd}
-        >
-          <SortableContext items={items.map(i => i.id)} strategy={rectSortingStrategy}>
-            <div className="bs-gallery">
-              {items.map((u, idx) => (
-                <SortableGalleryItem
-                  key={u.id}
-                  item={u}
-                  position={idx}
-                  isMine={u.member?.id === me.id}
-                  onDelete={onDelete}
-                />
-              ))}
+              <div className="bs-arrival-grid">
+                <div className="bs-arrival-flag" aria-hidden="true">{country.flag}</div>
+                <div className="bs-arrival-name-block">
+                  <div className="bs-arrival-label">you have entered</div>
+                  <h2 className="bs-arrival-name">{country.name}</h2>
+                  <div className="bs-arrival-ribbon">
+                    <span><b>{country.code.toUpperCase()}</b></span>
+                    <span className="bs-arrival-ribbon-sep">·</span>
+                    <span>{count} {count === 1 ? 'entry' : 'entries'}</span>
+                    <span className="bs-arrival-ribbon-sep">·</span>
+                    <span>shared by the group</span>
+                  </div>
+                </div>
+                <div className="bs-arrival-coin-cell">
+                  <div className="bs-coin bs-coin-detail" title={`${count} memories from ${country.name}`}>
+                    <span className="bs-coin-stamped">★ MEMORIES ★</span>
+                    <span className="bs-coin-num">{memoryStr}</span>
+                    <span className="bs-coin-of">{country.code.toUpperCase()}</span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="bs-arrival-crew">
+                <div className="bs-avatar-stack">
+                  {members.slice(0, 5).map(m => <Avatar key={m.id} name={m.displayName} size={28} />)}
+                </div>
+                <span className="bs-crew-label">
+                  contributions · {members.map(m => m.displayName).join(' · ')}
+                </span>
+              </div>
             </div>
-          </SortableContext>
-        </DndContext>
-      )}
+
+            {/* PERFORATION DIVIDER */}
+            <div className="bs-perforation">
+              <span className="bs-perf-hole bs-perf-hole-l" />
+              <span className="bs-perf-hole bs-perf-hole-r" />
+              <div className="bs-perf-line" />
+            </div>
+
+            {/* UPLOAD BAR */}
+            <div className="bs-upload-bar">
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*,video/*"
+                multiple
+                style={{ display: 'none' }}
+                onChange={handleFiles}
+              />
+              <button
+                className="bs-upload-btn"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={busy}
+              >
+                <span className="bs-upload-btn-plus">＋</span>
+                <span>{busy ? (progress ? `uploading ${progress.idx} / ${progress.total}` : 'uploading…') : 'add photos or videos'}</span>
+              </button>
+              <div className="bs-upload-hint">
+                <span><b>videos</b> up to <b>5:00</b></span>
+                <span>drag the <b>⠿</b> grip to reorder</span>
+                <span>first slot <b>= cover</b></span>
+              </div>
+            </div>
+
+            {busy && progress && (
+              <div className="bs-upload-progress">
+                <div className="bs-upload-progress-row">
+                  <span className="bs-upload-progress-name">
+                    {progress.filename}
+                    {progress.sizeMB >= 0.05 && (
+                      <span className="bs-upload-progress-size"> · {progress.sizeMB.toFixed(progress.sizeMB < 10 ? 1 : 0)} MB</span>
+                    )}
+                  </span>
+                  <span className="bs-upload-progress-pct">{Math.round((progress.pct || 0) * 100)}%</span>
+                </div>
+                <div className="bs-upload-progress-track">
+                  <div className="bs-upload-progress-fill" style={{ width: `${Math.round((progress.pct || 0) * 100)}%` }} />
+                </div>
+              </div>
+            )}
+
+            {error && <p className="bs-upload-error">{error}</p>}
+
+            {/* GALLERY OR EMPTY STATE */}
+            <div className="bs-gallery-wrap">
+              {items.length === 0 ? (
+                <div className="bs-empty">
+                  <div className="bs-plaque">
+                    <span className="bs-plaque-tag">— plaque —</span>
+                    <div className="bs-plaque-title">an unvisited place</div>
+                    <div className="bs-plaque-sub">— be the first to write its entry</div>
+                    <div className="bs-plaque-count">0 memories from the group</div>
+                  </div>
+                  <button
+                    className="bs-empty-cta"
+                    onClick={() => fileInputRef.current?.click()}
+                  >
+                    <span>✈</span>
+                    <span>open a stamp</span>
+                  </button>
+                </div>
+              ) : (
+                <>
+                  <div className="bs-manifest-head">
+                    <span>— field entries —</span>
+                    <span><b>{items.length}</b> {items.length === 1 ? 'entry' : 'entries'}</span>
+                  </div>
+                  <DndContext
+                    sensors={sensors}
+                    collisionDetection={closestCenter}
+                    onDragEnd={handleDragEnd}
+                  >
+                    <SortableContext items={items.map(i => i.id)} strategy={rectSortingStrategy}>
+                      <div className="bs-gallery">
+                        {items.map((u, idx) => (
+                          <SortableGalleryItem
+                            key={u.id}
+                            item={u}
+                            position={idx}
+                            isMine={u.member?.id === me.id}
+                            onDelete={onDelete}
+                          />
+                        ))}
+                      </div>
+                    </SortableContext>
+                  </DndContext>
+                </>
+              )}
+            </div>
+
+            {/* DETAIL FOOTER */}
+            <div className="bs-detail-foot">
+              <div className="bs-detail-foot-left">
+                <PulseDot tone="red" />
+                <span>live · synced with the group</span>
+              </div>
+              <Barcode short />
+              <div className="bs-detail-foot-right">
+                {country.code.toUpperCase()} · {memoryStr} · {groupRef}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="bs-fineprint">press esc · or click ← to return to the chronicle</div>
+      </div>
     </div>
   );
 }
 
-// Wraps GalleryItem with sortable behavior. The drag listeners are passed
-// down so we can attach them to a dedicated grip handle rather than the
-// whole figure — that way clicks on the X-delete button or the video play
-// area aren't swallowed by the drag detector.
+// ─── sortable gallery item ──────────────────────────────────────────────
+
+const ROTATIONS = [-1.5, 1.2, -0.8, 0.6, -1.1, 1.5, -0.5, 0.9, -1.3, 0.4];
+
 function SortableGalleryItem({ item, position, isMine, onDelete }) {
   const {
     attributes, listeners, setNodeRef, transform, transition, isDragging,
   } = useSortable({ id: item.id });
+
   const style = {
     transform: DndCSS.Transform.toString(transform),
     transition,
     opacity: isDragging ? 0.55 : 1,
     zIndex: isDragging ? 50 : 'auto',
+    // Each polaroid gets a tiny deterministic rotation so the wall doesn't
+    // look like a uniform grid. Stable per position.
+    '--bs-rot': `${ROTATIONS[position % ROTATIONS.length]}deg`,
   };
+
   return (
-    <div ref={setNodeRef} style={style} className={isDragging ? 'bs-item-wrap bs-item-dragging' : 'bs-item-wrap'}>
-      <GalleryItem
+    <div ref={setNodeRef} style={style} className={isDragging ? 'bs-polaroid-wrap bs-polaroid-dragging' : 'bs-polaroid-wrap'}>
+      <Polaroid
         item={item}
         position={position}
         isMine={isMine}
+        isFirst={position === 0}
         onDelete={onDelete}
         dragHandleProps={{ ...attributes, ...listeners }}
       />
@@ -543,37 +787,29 @@ function SortableGalleryItem({ item, position, isMine, onDelete }) {
   );
 }
 
-function GalleryItem({ item, position, isMine, onDelete, dragHandleProps }) {
-  const [deleting, setDeleting] = useState(false);
+function Polaroid({ item, position, isMine, isFirst, onDelete, dragHandleProps }) {
   async function handleDelete() {
-    const who = item.member?.name || 'someone';
-    const kind = item.kind === 'video' ? 'video' : 'photo';
-    const prompt = isMine
-      ? `Delete this ${kind}? Can't be undone.`
-      : `Delete ${who}'s ${kind}? They uploaded it — can't be undone.`;
-    if (!confirm(prompt)) return;
-    setDeleting(true);
-    const r = await onDelete(item.id);
-    if (!r.ok) {
-      setDeleting(false);
-      alert('delete failed: ' + r.error);
-    }
+    const author = item.member?.displayName || 'someone';
+    if (!isMine && !confirm(`Delete ${author}'s upload? This can't be undone.`)) return;
+    if (isMine && !confirm('Delete this upload? This can\'t be undone.')) return;
+    await onDelete(item.id);
   }
-  const isCover = position === 0;
+
   return (
-    <figure className="bs-item">
-      {isCover && <span className="bs-item-cover-badge" title="cover photo for this country">cover</span>}
-      <div className="bs-item-media">
-        {item.kind === 'video'
-          ? <video src={item.url} controls preload="metadata" playsInline />
-          : <img src={item.url} alt="" loading="lazy" />}
-        {item.kind === 'video' && item.durationSec && (
-          <span className="bs-item-duration">{formatDuration(item.durationSec)}</span>
+    <figure className="bs-polaroid">
+      <div className="bs-polaroid-media">
+        {item.kind === 'video' ? (
+          <video src={item.url} controls preload="metadata" />
+        ) : (
+          <img src={item.url} alt="" loading="lazy" />
+        )}
+        {item.kind === 'video' && item.durationSec != null && (
+          <span className="bs-polaroid-duration">{formatDuration(item.durationSec)}</span>
         )}
         {dragHandleProps && (
           <button
             type="button"
-            className="bs-item-drag"
+            className="bs-polaroid-grip"
             title="drag to reorder"
             aria-label={`drag to reorder, currently at position ${position + 1}`}
             {...dragHandleProps}
@@ -581,19 +817,21 @@ function GalleryItem({ item, position, isMine, onDelete, dragHandleProps }) {
             ⠿
           </button>
         )}
+        {isFirst && <span className="bs-polaroid-cover-badge">1st · cover</span>}
       </div>
-      <figcaption className="bs-item-caption">
-        <span className="bs-item-author">{item.member?.name || '—'}</span>
-        <span className="bs-item-date">
-          {new Date(item.createdAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+      <figcaption className="bs-polaroid-caption">
+        <span className="bs-polaroid-author">
+          <b>{item.member?.displayName || 'unknown'}</b>
+          <span className="bs-polaroid-date"> · {shortDate(item.createdAt)}</span>
         </span>
         <button
-          className={`bs-item-delete ${isMine ? '' : 'bs-item-delete-foreign'}`}
+          type="button"
+          className={isMine ? 'bs-polaroid-delete bs-polaroid-delete-mine' : 'bs-polaroid-delete'}
           onClick={handleDelete}
-          disabled={deleting}
-          title={isMine ? 'delete this upload' : `delete ${item.member?.name || 'this member'}'s upload`}
+          title={isMine ? 'delete' : "delete someone else's upload"}
+          aria-label="delete this upload"
         >
-          {deleting ? '…' : '✕'}
+          ×
         </button>
       </figcaption>
     </figure>
@@ -603,113 +841,260 @@ function GalleryItem({ item, position, isMine, onDelete, dragHandleProps }) {
 // ─── styles ────────────────────────────────────────────────────────────
 
 const CSS = `
+/* ── root + stage ──────────────────────────────────────────────── */
 .bs-root {
-  background:#b91d22;
+  min-height:100vh; position:relative;
+  background:radial-gradient(ellipse at 50% 30%, #7a1a1a 0%, #4a0e08 65%, #2a0608 100%);
+  color:#ede2c4;
+  font-family:'Manrope','Cormorant Garamond',system-ui,sans-serif;
+  -webkit-font-smoothing:antialiased;
+}
+
+.bs-runway {
+  position:absolute; left:0; right:0; height:2px; z-index:5; pointer-events:none;
+  background:repeating-linear-gradient(to right, rgba(212,175,55,0.35) 0 14px, transparent 14px 28px);
+}
+.bs-runway-top { top:22px; }
+.bs-runway-bottom { bottom:22px; }
+@media (max-width: 639px) {
+  .bs-runway-top { top:14px; }
+  .bs-runway-bottom { bottom:14px; }
+}
+
+.bs-wrap {
+  max-width:1280px; margin:0 auto;
+  padding:48px 24px 56px;
+  position:relative; z-index:1;
+}
+@media (max-width: 639px) { .bs-wrap { padding:40px 12px 48px; } }
+
+.bs-now-boarding {
+  display:flex; align-items:center; gap:8px;
+  padding-left:32px; margin-bottom:18px;
+  font-family:'JetBrains Mono',monospace; font-size:11px;
+  letter-spacing:0.32em; text-transform:uppercase; color:#d4af37;
+}
+@media (max-width: 639px) {
+  .bs-now-boarding { padding-left:12px; font-size:10px; }
+}
+
+.bs-pulse-dot {
+  display:inline-block; width:6px; height:6px; border-radius:50%;
+  animation:bsPulse 1.6s ease-in-out infinite;
+}
+.bs-pulse-gold { background:#d4af37; }
+.bs-pulse-red  { background:#7a1a1a; }
+@keyframes bsPulse { 0%,100% { opacity:1; } 50% { opacity:0.35; } }
+
+/* ── stub paper card ───────────────────────────────────────────── */
+.bs-stub {
+  position:relative;
+  background-color:#ede2c4;
   background-image:
-    radial-gradient(ellipse at 20% 0%, rgba(212,175,55,0.12), transparent 55%),
-    radial-gradient(ellipse at 80% 100%, rgba(40,8,8,0.4), transparent 60%),
-    repeating-linear-gradient(45deg, transparent 0 22px, rgba(0,0,0,0.04) 22px 23px);
-  min-height:100vh; font-family:'Cormorant Garamond',serif; color:#f5e7c4;
-  padding:40px 52px 80px; position:relative; overflow:hidden;
+    radial-gradient(ellipse at 30% 0%, rgba(255,250,235,0.55) 0%, transparent 60%),
+    repeating-linear-gradient(0deg, rgba(58,10,8,0.022) 0 1px, transparent 1px 3px);
+  box-shadow:0 30px 70px rgba(0,0,0,0.55), 0 0 0 1px rgba(58,10,8,0.15);
+  color:#2a0808;
+  -webkit-mask:radial-gradient(circle at 0 18px, transparent 9px, #000 9.5px) 0 0/100% 36px;
+          mask:radial-gradient(circle at 0 18px, transparent 9px, #000 9.5px) 0 0/100% 36px;
+}
+@media (max-width: 639px) {
+  .bs-stub {
+    -webkit-mask:radial-gradient(circle at 18px 0, transparent 9px, #000 9.5px) 0 0/36px 100%;
+            mask:radial-gradient(circle at 18px 0, transparent 9px, #000 9.5px) 0 0/36px 100%;
+  }
+}
+.bs-stub-perf {
+  position:absolute; top:24px; bottom:24px; left:10px; width:1px;
+  background:repeating-linear-gradient(to bottom, rgba(58,10,8,0.5) 0 6px, transparent 6px 12px);
+}
+@media (max-width: 639px) {
+  .bs-stub-perf {
+    top:10px; left:24px; right:24px; bottom:auto; width:auto; height:1px;
+    background:repeating-linear-gradient(to right, rgba(58,10,8,0.5) 0 6px, transparent 6px 12px);
+  }
+}
+.bs-stub-inner {
+  position:relative;
+  padding:36px 40px 32px 60px;
+}
+@media (max-width: 639px) {
+  .bs-stub-inner { padding:40px 18px 26px; }
 }
 
-/* ── dragon sky ──────────────────────────────────────────────────── */
-.bs-sky { position:absolute; top:0; left:0; right:0; height:180px;
-  background:linear-gradient(180deg, rgba(20,6,6,0.6), rgba(20,6,6,0));
-  overflow:hidden; z-index:5; pointer-events:none; }
-.bs-sky::after { content:''; position:absolute; left:0; right:0; bottom:0; height:1px;
-  background:linear-gradient(90deg, transparent, rgba(212,175,55,0.5), transparent); }
-.bs-stars { position:absolute; inset:0; opacity:0.4; }
-.bs-star { position:absolute; width:2px; height:2px; border-radius:50%; background:#d4af37;
-  box-shadow:0 0 4px rgba(212,175,55,0.8); animation:bsTwinkle 3s ease-in-out infinite; }
-@keyframes bsTwinkle { 0%,100% { opacity:0.3; } 50% { opacity:1; } }
-
-.bs-dragon-wrap {
-  position:absolute; top:18px; left:0; width:340px; height:157px;
-  animation:bsFly 13s cubic-bezier(.55,.05,.35,.95) infinite; will-change:transform;
+/* ── stub header strip ─────────────────────────────────────────── */
+.bs-stub-head {
+  display:flex; align-items:flex-start; justify-content:space-between;
+  gap:14px; padding-bottom:14px;
+  border-bottom:1px dashed rgba(42,8,8,0.3);
 }
-@keyframes bsFly {
-  0%{transform:translateX(-115%) translateY(0);}
-  10%{transform:translateX(-30%) translateY(-6px);}
-  25%{transform:translateX(15%) translateY(10px);}
-  45%{transform:translateX(55%) translateY(-8px);}
-  60%{transform:translateX(170%) translateY(6px);}
-  80%{transform:translateX(330%) translateY(-2px);}
-  100%{transform:translateX(460%) translateY(0);}
+.bs-stub-brand { min-width:0; }
+.bs-stub-wordmark-row { display:flex; align-items:baseline; gap:8px; flex-wrap:wrap; }
+.bs-stub-wordmark {
+  font-family:'Cormorant Garamond',serif; font-style:italic; font-weight:500;
+  font-size:30px; line-height:1; color:#7a1a1a;
 }
-.bs-dragon-img {
-  width:100%; height:100%; display:block;
-  filter:drop-shadow(0 6px 12px rgba(0,0,0,0.45)) drop-shadow(0 0 18px rgba(212,175,55,0.35));
-  animation:bsWiggle 1.4s ease-in-out infinite; transform-origin:80% 50%;
+@media (max-width: 639px) { .bs-stub-wordmark { font-size:26px; } }
+.bs-stub-chronicle {
+  font-family:'JetBrains Mono',monospace; font-size:10px;
+  letter-spacing:0.26em; text-transform:uppercase; color:rgba(42,8,8,0.5);
 }
-@keyframes bsWiggle {
-  0%{transform:rotate(-2deg) skewX(0deg) translateY(0);}
-  25%{transform:rotate(1deg) skewX(-3deg) translateY(-3px);}
-  50%{transform:rotate(2deg) skewX(0deg) translateY(0);}
-  75%{transform:rotate(-1deg) skewX(3deg) translateY(3px);}
-  100%{transform:rotate(-2deg) skewX(0deg) translateY(0);}
+.bs-stub-zone {
+  font-family:'JetBrains Mono',monospace; font-size:10px;
+  letter-spacing:0.28em; text-transform:uppercase; color:rgba(42,8,8,0.6);
+  margin-top:6px;
 }
-.bs-trail { position:absolute; width:4px; height:4px; border-radius:50%; background:#d4af37;
-  box-shadow:0 0 6px #f0c659; opacity:0; animation:bsTrail 13s linear infinite; top:88px; }
-@keyframes bsTrail {
-  0%{opacity:0; transform:translateX(-20px) translateY(0);}
-  10%{opacity:0.9;}
-  50%{opacity:0.5; transform:translateX(80vw) translateY(-6px);}
-  70%{opacity:0; transform:translateX(110vw) translateY(0);}
-  100%{opacity:0;}
+.bs-stub-meta { text-align:right; flex-shrink:0; }
+.bs-stub-meta-label {
+  font-family:'JetBrains Mono',monospace; font-size:10px;
+  letter-spacing:0.22em; text-transform:uppercase; color:rgba(42,8,8,0.55);
+}
+.bs-stub-meta-ref {
+  font-family:'JetBrains Mono',monospace; font-size:14px; font-weight:700;
+  letter-spacing:0.18em; color:#7a1a1a; margin:2px 0;
+}
+.bs-stub-meta-gate { margin-top:2px; }
+
+/* ── title + coin row ──────────────────────────────────────────── */
+.bs-title-row {
+  display:grid; grid-template-columns:1fr auto; gap:24px;
+  margin-top:26px; align-items:end;
+}
+@media (max-width: 900px) { .bs-title-row { grid-template-columns:1fr; gap:18px; } }
+
+.bs-title-block { min-width:0; }
+.bs-title-label {
+  font-family:'JetBrains Mono',monospace; font-size:10px;
+  letter-spacing:0.22em; text-transform:uppercase; color:rgba(42,8,8,0.55);
+  margin-bottom:6px;
+}
+.bs-title {
+  margin:0;
+  font-family:'Cormorant Garamond',serif; font-style:italic; font-weight:500;
+  font-size:clamp(36px, 6vw, 60px); line-height:1.02; letter-spacing:-0.015em;
+  color:#2a0808; word-break:break-word;
 }
 
-/* ── frame ──────────────────────────────────────────────────────── */
-.bs-frame { position:relative; z-index:2; margin-top:202px;
-  background:rgba(20,8,8,0.18); padding:28px 32px 32px;
-  box-shadow: inset 0 0 0 2px #d4af37, inset 0 0 0 4px rgba(20,8,8,0.4), inset 0 0 0 5px #d4af37; }
-.bs-frame::before, .bs-frame::after { content:''; position:absolute; width:28px; height:28px; border:2px solid #d4af37; }
-.bs-frame::before { top:8px; left:8px; border-right:0; border-bottom:0; }
-.bs-frame::after { top:8px; right:8px; border-left:0; border-bottom:0; }
-.bs-corner-bl { position:absolute; bottom:8px; left:8px; width:28px; height:28px; border:2px solid #d4af37; border-right:0; border-top:0; }
-.bs-corner-br { position:absolute; bottom:8px; right:8px; width:28px; height:28px; border:2px solid #d4af37; border-left:0; border-top:0; }
+.bs-crew {
+  margin-top:16px;
+  display:flex; align-items:center; gap:12px; flex-wrap:wrap;
+}
+.bs-avatar-stack { display:flex; }
+.bs-avatar {
+  display:inline-flex; align-items:center; justify-content:center;
+  border-radius:50%; border:2px solid #ede2c4;
+  margin-left:-8px; position:relative; flex-shrink:0;
+  font-family:'JetBrains Mono',monospace; font-weight:700; color:#2a0808;
+}
+.bs-avatar:first-child { margin-left:0; }
+.bs-crew-label {
+  font-family:'JetBrains Mono',monospace; font-size:10px;
+  letter-spacing:0.24em; text-transform:uppercase; color:rgba(42,8,8,0.7);
+}
+.bs-crew-label b { color:#2a0808; }
 
-/* ── header ─────────────────────────────────────────────────────── */
-.bs-header { display:flex; align-items:center; justify-content:space-between; gap:24px; padding-bottom:18px; margin-bottom:14px; border-bottom:1.5px dashed rgba(212,175,55,0.4); }
-.bs-brand { display:flex; flex-direction:column; gap:6px; }
-.bs-brand-mark { font-family:'JetBrains Mono',monospace; font-size:10px; letter-spacing:0.35em; text-transform:uppercase; color:#d4af37; font-weight:500; }
-.bs-wordmark { font-family:'Cormorant Garamond',serif; font-style:italic; font-weight:400; font-size:80px; line-height:0.88; letter-spacing:-0.02em; color:#f5e7c4; text-shadow:0 2px 0 rgba(0,0,0,0.3); margin:0; }
-.bs-wordmark::after { content:'.'; color:#d4af37; font-style:normal; }
-.bs-wordmark-sub { font-family:'Cormorant Garamond',serif; font-style:italic; font-size:15px; color:#d4af37; margin-top:2px; opacity:0.85; }
+/* coin */
+.bs-coin-row { display:flex; align-items:center; gap:16px; justify-content:flex-end; }
+@media (max-width: 900px) { .bs-coin-row { justify-content:flex-start; } }
+.bs-coin-meta { text-align:right; }
+@media (max-width: 900px) { .bs-coin-meta { text-align:left; } }
+.bs-coin-meta-label {
+  font-family:'JetBrains Mono',monospace; font-size:9px;
+  letter-spacing:0.24em; text-transform:uppercase; color:rgba(42,8,8,0.55);
+}
+.bs-coin-meta-big {
+  font-family:'JetBrains Mono',monospace; font-size:28px; font-weight:700;
+  letter-spacing:0.18em; color:#2a0808; line-height:1; margin:4px 0;
+}
 
-.bs-stats { display:flex; gap:18px; align-items:center; }
-.bs-stat-coin { width:88px; height:88px; border-radius:50%;
-  background:radial-gradient(circle at 30% 30%, #f0c659, #b8851f 70%, #8a5e15);
-  position:relative; display:flex; align-items:center; justify-content:center;
-  box-shadow:0 4px 12px rgba(0,0,0,0.4), inset 0 0 0 3px rgba(20,8,8,0.6);
-  flex-shrink:0; transform:rotate(-4deg); animation:bsCoinSpin 16s ease-in-out infinite; }
-@keyframes bsCoinSpin { 0%,100% { transform:rotate(-4deg); } 50% { transform:rotate(4deg); } }
-.bs-stat-coin::before { content:''; position:absolute; inset:8px; border-radius:50%; border:1.5px solid rgba(20,8,8,0.5); }
-.bs-stat-coin::after { content:''; position:absolute; inset:18px; border:1.5px solid rgba(20,8,8,0.35); }
-.bs-stat-coin-num { font-family:'JetBrains Mono',monospace; font-weight:500; font-size:20px; color:#2a1010; line-height:1; }
-.bs-stat-text { font-family:'Cormorant Garamond',serif; font-style:italic; font-size:18px; color:#f5e7c4; text-align:right; line-height:1.3; }
-.bs-stat-text b { font-family:'JetBrains Mono',monospace; font-style:normal; color:#d4af37; font-weight:500; font-size:20px; }
-.bs-stat-text small { display:block; font-family:'JetBrains Mono',monospace; font-size:9px; letter-spacing:0.3em; text-transform:uppercase; color:rgba(245,231,196,0.55); margin-top:4px; }
+.bs-coin {
+  width:80px; height:80px; border-radius:50%;
+  background:radial-gradient(circle at 30% 25%, #f0d77a 0%, #d4af37 35%, #a8853a 80%, #6e5520 100%);
+  box-shadow:
+    inset 0 0 0 2px rgba(110,85,32,0.7),
+    inset 0 0 0 3px rgba(240,215,122,0.45),
+    0 14px 26px rgba(0,0,0,0.4);
+  position:relative;
+  display:flex; align-items:center; justify-content:center;
+  flex-shrink:0;
+}
+@media (max-width: 639px) { .bs-coin { width:70px; height:70px; } }
+.bs-coin-num {
+  font-family:'Cormorant Garamond',serif; font-style:italic; font-weight:700;
+  font-size:28px; color:#2a0808; transform:rotate(-8deg); line-height:1;
+}
+.bs-coin-stamped {
+  position:absolute; top:8px; left:0; right:0; text-align:center;
+  font-family:'JetBrains Mono',monospace; font-size:7px; font-weight:700;
+  letter-spacing:0.3em; color:rgba(42,8,8,0.85);
+}
+.bs-coin-of {
+  position:absolute; bottom:8px; left:0; right:0; text-align:center;
+  font-family:'JetBrains Mono',monospace; font-size:7px; font-weight:700;
+  letter-spacing:0.2em; color:rgba(42,8,8,0.85);
+}
 
-/* ── meta row ───────────────────────────────────────────────────── */
-.bs-meta-row { display:flex; align-items:center; justify-content:space-between; gap:16px; padding:8px 0 18px; margin-bottom:12px; border-bottom:1.5px dashed rgba(212,175,55,0.25); flex-wrap:wrap; }
-.bs-members { display:flex; align-items:baseline; gap:8px; }
-.bs-meta-label { font-family:'JetBrains Mono',monospace; font-size:9px; letter-spacing:0.3em; text-transform:uppercase; color:rgba(212,175,55,0.7); }
-.bs-meta-value { font-family:'Cormorant Garamond',serif; font-style:italic; font-size:15px; color:#f5e7c4; }
-.bs-meta-actions { display:flex; gap:8px; }
-.bs-meta-btn { background:transparent; border:1px solid rgba(212,175,55,0.5); padding:6px 14px; font-family:'JetBrains Mono',monospace; font-size:10px; letter-spacing:0.2em; text-transform:uppercase; color:#d4af37; cursor:pointer; transition:all .15s; }
-.bs-meta-btn:hover { background:#d4af37; color:#1a0808; }
-.bs-meta-btn-quiet { border-color:rgba(212,175,55,0.25); color:rgba(212,175,55,0.55); }
-.bs-meta-btn-quiet:hover { background:rgba(122,26,26,0.6); color:#f5e7c4; border-color:rgba(220,53,69,0.5); }
+.bs-coin-detail { width:96px; height:96px; }
+.bs-coin-detail .bs-coin-num { font-size:32px; }
 
-/* ── group switcher ─────────────────────────────────────────────── */
+/* ── action buttons ────────────────────────────────────────────── */
+.bs-actions {
+  margin-top:24px;
+  display:flex; gap:10px; flex-wrap:wrap; align-items:center;
+}
+
+.bs-stub-btn {
+  background:#7a1a1a; color:#ede2c4;
+  border:1.5px dashed #d4af37;
+  padding:9px 16px; cursor:pointer;
+  font-family:'JetBrains Mono',monospace; font-weight:700; font-size:11px;
+  letter-spacing:0.22em; text-transform:uppercase;
+  display:inline-flex; align-items:center; gap:10px;
+  box-shadow:0 4px 14px rgba(0,0,0,0.15);
+  transition:background .15s, color .15s, border-color .15s, transform .15s, box-shadow .15s;
+}
+.bs-stub-btn:hover:not(:disabled) {
+  background:#d4af37; color:#2a0808; border-color:#2a0808;
+  transform:translateY(-1px);
+  box-shadow:0 10px 22px rgba(212,175,55,0.35);
+}
+.bs-stub-btn:disabled { opacity:0.45; cursor:not-allowed; }
+
+.bs-stub-btn-paper {
+  background:transparent; color:#2a0808; border-color:#7a1a1a;
+  box-shadow:none;
+}
+.bs-stub-btn-paper:hover:not(:disabled) {
+  background:#7a1a1a; color:#ede2c4; border-color:#2a0808;
+}
+
+.bs-stub-btn-glyph { font-size:14px; line-height:1; }
+.bs-stub-btn-plane { color:#a8853a; font-size:14px; }
+.bs-stub-btn-paper:hover .bs-stub-btn-plane { color:#d4af37; }
+.bs-stub-btn-italic {
+  font-family:'Cormorant Garamond',serif; font-style:italic; font-weight:500;
+  font-size:15px; letter-spacing:0; text-transform:none; line-height:1.1;
+}
+.bs-stub-btn-arrow { color:rgba(42,8,8,0.5); }
+.bs-stub-btn-paper:hover .bs-stub-btn-arrow { color:rgba(237,226,196,0.8); }
+
+@media (max-width: 639px) {
+  .bs-stub-btn { padding:8px 12px; font-size:10px; letter-spacing:0.18em; gap:8px; }
+  .bs-stub-btn-italic { font-size:13px; }
+}
+
+/* ── switcher ──────────────────────────────────────────────────── */
 .bs-switcher { position:relative; }
+.bs-switcher-btn { cursor:pointer; }
 .bs-switcher-panel {
-  position:absolute; top:calc(100% + 6px); right:0; z-index:30;
+  position:absolute; top:calc(100% + 6px); left:0; z-index:30;
   min-width:240px; max-width:320px;
-  background:#1a0808;
-  box-shadow:0 8px 24px rgba(0,0,0,0.55), inset 0 0 0 1.5px #d4af37, inset 0 0 0 3px rgba(20,8,8,0.4), inset 0 0 0 4px rgba(212,175,55,0.5);
-  padding:8px;
+  background-color:#ede2c4;
+  background-image:
+    radial-gradient(ellipse at 30% 0%, rgba(255,250,235,0.55) 0%, transparent 60%),
+    repeating-linear-gradient(0deg, rgba(58,10,8,0.022) 0 1px, transparent 1px 3px);
+  box-shadow:0 18px 30px rgba(0,0,0,0.45), 0 0 0 1px rgba(58,10,8,0.15);
+  padding:6px;
   animation:bsSwitcherFade .14s ease-out;
 }
 @keyframes bsSwitcherFade {
@@ -717,137 +1102,372 @@ const CSS = `
   to   { opacity:1; transform:translateY(0); }
 }
 .bs-switcher-section {
-  font-family:'JetBrains Mono',monospace; font-size:9px; letter-spacing:0.35em;
-  text-transform:uppercase; color:#d4af37; padding:8px 10px 6px;
-  border-bottom:1px dashed rgba(212,175,55,0.3); margin-bottom:4px;
+  font-family:'JetBrains Mono',monospace; font-size:9px;
+  letter-spacing:0.32em; text-transform:uppercase; color:#7a1a1a;
+  padding:8px 12px 6px;
+  border-bottom:1px dashed rgba(42,8,8,0.3); margin-bottom:4px;
 }
 .bs-switcher-row {
   display:flex; flex-direction:column; align-items:flex-start; gap:2px;
-  width:100%; text-align:left; padding:9px 12px;
+  width:100%; text-align:left; padding:10px 12px;
   background:transparent; border:none; cursor:pointer;
-  font-family:'Cormorant Garamond',serif; color:#f5e7c4;
+  font-family:'Cormorant Garamond',serif; color:#2a0808;
   text-decoration:none; transition:background .12s;
 }
 .bs-switcher-row:hover, .bs-switcher-row:focus-visible {
-  background:rgba(212,175,55,0.12); outline:none;
+  background:rgba(212,175,55,0.18); outline:none;
 }
-.bs-switcher-name { font-style:italic; font-size:16px; line-height:1.15; }
+.bs-switcher-name { font-style:italic; font-size:15px; line-height:1.15; }
 .bs-switcher-sub {
-  font-family:'JetBrains Mono',monospace; font-size:9px; letter-spacing:0.22em;
-  text-transform:uppercase; color:rgba(212,175,55,0.7);
+  font-family:'JetBrains Mono',monospace; font-size:9px;
+  letter-spacing:0.22em; text-transform:uppercase; color:rgba(42,8,8,0.55);
 }
-.bs-switcher-divider { height:1px; background:rgba(212,175,55,0.25); margin:6px 4px; }
-.bs-switcher-new .bs-switcher-name { color:#d4af37; }
+.bs-switcher-divider {
+  height:1px; margin:6px 4px;
+  background:repeating-linear-gradient(to right, rgba(42,8,8,0.3) 0 4px, transparent 4px 8px);
+}
+.bs-switcher-new .bs-switcher-name { color:#7a1a1a; }
 .bs-switcher-empty {
-  padding:14px 12px; font-family:'Cormorant Garamond',serif; font-style:italic;
-  font-size:14px; color:rgba(245,231,196,0.7); text-align:center; line-height:1.4;
+  padding:14px 12px; text-align:center;
+  font-family:'Cormorant Garamond',serif; font-style:italic;
+  font-size:14px; color:rgba(42,8,8,0.7); line-height:1.4;
 }
 .bs-switcher-empty small {
   display:block; margin-top:4px;
   font-family:'JetBrains Mono',monospace; font-style:normal; font-size:9px;
-  letter-spacing:0.22em; text-transform:uppercase; color:rgba(212,175,55,0.5);
+  letter-spacing:0.22em; text-transform:uppercase; color:rgba(42,8,8,0.5);
 }
 
-
-
-/* ── search ─────────────────────────────────────────────────────── */
-.bs-search-row { display:flex; align-items:center; gap:14px; margin-bottom:22px; }
-.bs-search-lbl { font-family:'JetBrains Mono',monospace; font-size:10px; letter-spacing:0.3em; text-transform:uppercase; color:#d4af37; font-weight:500; }
-.bs-search { background:rgba(20,8,8,0.4); border:1.5px solid rgba(212,175,55,0.4); padding:9px 16px; font-size:14px; width:300px; outline:none; color:#f5e7c4; font-family:'Cormorant Garamond',serif; font-style:italic; letter-spacing:0.05em; }
-.bs-search:focus { border-color:#d4af37; }
-.bs-search::placeholder { color:rgba(245,231,196,0.4); }
-
-/* ── tile grid ──────────────────────────────────────────────────── */
-.bs-grid { display:grid; grid-template-columns:repeat(8,1fr); gap:9px; }
-@media (max-width: 900px) { .bs-grid { grid-template-columns:repeat(4,1fr); } }
-@media (max-width: 540px) { .bs-grid { grid-template-columns:repeat(3,1fr); } }
-.bs-tile { aspect-ratio:1/1; position:relative; overflow:visible; cursor:pointer; outline:none; transition:transform .3s cubic-bezier(.2,.7,.3,1); border:none; padding:0; background:none; opacity:0; animation:bsFadeIn .5s forwards; }
-@keyframes bsFadeIn { to { opacity:1; } }
-.bs-tile:hover, .bs-tile:focus-visible { transform:scale(1.06); z-index:5; }
-.bs-tile-inner { position:absolute; inset:0; background:#1a0808; box-shadow:inset 0 0 0 1px #d4af37, inset 0 0 0 3px rgba(20,8,8,0.6), inset 0 0 0 4px rgba(212,175,55,0.5); overflow:hidden; transition:box-shadow .3s; }
-.bs-tile:hover .bs-tile-inner { box-shadow:inset 0 0 0 1px #f0c659, inset 0 0 0 3px rgba(20,8,8,0.6), inset 0 0 0 4px #f0c659, 0 0 24px rgba(212,175,55,0.35); }
-.bs-tile-inner::before, .bs-tile-inner::after,
-.bs-corner-tile-bl, .bs-corner-tile-br { content:''; position:absolute; width:8px; height:8px; border:1px solid #d4af37; z-index:3; }
-.bs-tile-inner::before { top:5px; left:5px; border-right:0; border-bottom:0; }
-.bs-tile-inner::after { top:5px; right:5px; border-left:0; border-bottom:0; }
-.bs-corner-tile-bl { bottom:5px; left:5px; border-right:0; border-top:0; }
-.bs-corner-tile-br { bottom:5px; right:5px; border-left:0; border-top:0; }
-.bs-tile-photo, .bs-tile-photo video, .bs-tile video.bs-tile-photo {
-  position:absolute; inset:0; width:100%; height:100%; object-fit:cover;
-  background-size:cover; background-position:center; filter:saturate(0.7) sepia(0.25) brightness(0.85);
+/* ── seek input ────────────────────────────────────────────────── */
+.bs-search-row {
+  margin-top:28px;
+  display:flex; align-items:flex-end; gap:14px; max-width:560px;
 }
-.bs-tile-photo::after { content:''; position:absolute; inset:0; background:linear-gradient(180deg, rgba(20,8,8,0.1) 45%, rgba(20,8,8,0.75)); }
-.bs-name { position:absolute; left:10px; bottom:8px; font-family:'Cormorant Garamond',serif; font-style:italic; font-weight:500; font-size:16px; line-height:1.05; z-index:3; }
-.bs-tile-visited .bs-name { color:#f5e7c4; text-shadow:0 1px 4px rgba(0,0,0,0.7); }
-.bs-tile-empty .bs-name { color:rgba(212,175,55,0.6); }
-.bs-tile-empty .bs-name-sub { display:block; font-family:'JetBrains Mono',monospace; font-style:normal; font-size:9px; letter-spacing:0.2em; color:rgba(212,175,55,0.4); margin-top:2px; }
-.bs-badge { position:absolute; top:8px; right:8px; min-width:22px; height:22px; padding:0 6px; background:#d4af37; color:#1a0808; font-family:'JetBrains Mono',monospace; font-size:11px; font-weight:600; display:flex; align-items:center; justify-content:center; border-radius:2px; z-index:3; box-shadow:0 1px 3px rgba(0,0,0,0.3); }
+.bs-search-lbl {
+  font-family:'JetBrains Mono',monospace; font-weight:700; font-size:11px;
+  letter-spacing:0.28em; text-transform:uppercase; color:#7a1a1a;
+  padding-bottom:8px; flex-shrink:0;
+}
+.bs-search {
+  flex:1; background:transparent; border:0;
+  border-bottom:2px solid #2a0808;
+  outline:none; padding:4px 0 8px;
+  font-family:'Cormorant Garamond',serif; font-style:italic;
+  font-size:22px; color:#2a0808;
+  transition:border-color .15s;
+}
+.bs-search:focus { border-bottom-color:#7a1a1a; }
+.bs-search::placeholder { color:rgba(42,8,8,0.35); }
+.bs-search-clear {
+  background:none; border:none; cursor:pointer;
+  font-family:'JetBrains Mono',monospace; font-size:10px;
+  letter-spacing:0.22em; text-transform:uppercase; color:rgba(42,8,8,0.5);
+  padding-bottom:8px;
+}
+.bs-search-clear:hover { color:#7a1a1a; }
 
-/* ── detail view ────────────────────────────────────────────────── */
-.bs-detail { position:fixed; inset:0; background:#b91d22;
-  background-image: radial-gradient(ellipse at 20% 0%, rgba(212,175,55,0.12), transparent 55%);
-  padding:40px 52px 80px; animation:bsSlideIn .42s cubic-bezier(.2,.7,.3,1); overflow:auto; z-index:20; }
-@keyframes bsSlideIn { from { transform:translateX(60px); opacity:0; } to { transform:translateX(0); opacity:1; } }
-.bs-back { background:none; border:1.5px solid rgba(212,175,55,0.5); padding:7px 16px; font-family:'JetBrains Mono',monospace; font-size:10px; letter-spacing:0.3em; text-transform:uppercase; color:#d4af37; cursor:pointer; margin-bottom:28px; transition:all .15s; }
-.bs-back:hover { background:#d4af37; color:#1a0808; }
+/* ── manifest grid ─────────────────────────────────────────────── */
+.bs-manifest { margin-top:28px; }
+.bs-manifest-head {
+  display:flex; align-items:center; justify-content:space-between;
+  margin-bottom:12px;
+  font-family:'JetBrains Mono',monospace; font-size:10px;
+  letter-spacing:0.26em; text-transform:uppercase; color:rgba(42,8,8,0.55);
+}
+.bs-manifest-head b { color:#2a0808; }
 
-.bs-detail-head { display:grid; grid-template-columns:auto 1fr auto; gap:24px; align-items:center; padding:24px; background:rgba(20,8,8,0.25); box-shadow:inset 0 0 0 1.5px #d4af37, inset 0 0 0 3px rgba(20,8,8,0.4), inset 0 0 0 4px rgba(212,175,55,0.5); margin-bottom:8px; }
-.bs-flag-cell { width:92px; height:92px; background:#1a0808; box-shadow:inset 0 0 0 1.5px #d4af37; display:flex; align-items:center; justify-content:center; font-size:48px; position:relative; font-family:'Noto Color Emoji','Apple Color Emoji','Segoe UI Emoji',sans-serif; line-height:1; }
-.bs-flag-cell::before, .bs-flag-cell::after { content:''; position:absolute; width:14px; height:14px; border:1.5px solid #d4af37; }
-.bs-flag-cell::before { top:4px; left:4px; border-right:0; border-bottom:0; }
-.bs-flag-cell::after { bottom:4px; right:4px; border-left:0; border-top:0; }
-.bs-name-stack { display:flex; flex-direction:column; gap:10px; }
-.bs-name-big { font-family:'Cormorant Garamond',serif; font-style:italic; font-weight:400; font-size:96px; line-height:0.85; letter-spacing:-0.025em; color:#f5e7c4; text-shadow:0 2px 0 rgba(0,0,0,0.3); margin:0; }
-.bs-name-row { display:flex; align-items:center; gap:14px; font-family:'JetBrains Mono',monospace; font-size:10px; letter-spacing:0.3em; text-transform:uppercase; color:#d4af37; font-weight:500; }
-.bs-name-row span:not(:last-child)::after { content:'·'; margin-left:14px; opacity:0.5; }
+.bs-grid {
+  display:grid; grid-template-columns:repeat(8, 1fr); gap:10px;
+}
+@media (max-width: 1024px) { .bs-grid { grid-template-columns:repeat(4, 1fr); } }
+@media (max-width: 639px)  { .bs-grid { grid-template-columns:repeat(3, 1fr); gap:8px; } }
 
-.bs-headcoin { width:92px; height:92px; border-radius:50%; background:radial-gradient(circle at 30% 30%, #f0c659, #b8851f 70%, #8a5e15); position:relative; display:flex; align-items:center; justify-content:center; box-shadow:0 4px 12px rgba(0,0,0,0.4), inset 0 0 0 3px rgba(20,8,8,0.6); }
-.bs-headcoin::before { content:''; position:absolute; inset:8px; border-radius:50%; border:1.5px solid rgba(20,8,8,0.5); }
-.bs-headcoin-num { font-family:'JetBrains Mono',monospace; font-weight:500; font-size:22px; color:#2a1010; line-height:1; }
-.bs-headcoin-lbl { position:absolute; bottom:-20px; left:50%; transform:translateX(-50%); font-family:'JetBrains Mono',monospace; font-size:9px; letter-spacing:0.25em; text-transform:uppercase; color:rgba(245,231,196,0.65); white-space:nowrap; }
+.bs-tile {
+  position:relative; aspect-ratio:3/4; overflow:hidden;
+  text-align:left; cursor:pointer; border:none; padding:0;
+  background-color:#ede2c4;
+  background-image:
+    radial-gradient(ellipse at 30% 0%, #f6ecd3 0%, transparent 70%),
+    repeating-linear-gradient(0deg, rgba(58,10,8,0.022) 0 1px, transparent 1px 3px);
+  background-size:cover; background-position:center;
+  box-shadow:0 6px 14px rgba(0,0,0,0.18), inset 0 0 0 1px rgba(58,10,8,0.08);
+  transition:transform .15s, box-shadow .15s;
+  opacity:0; animation:bsTileIn .45s forwards;
+}
+@keyframes bsTileIn { to { opacity:1; } }
+.bs-tile:hover, .bs-tile:focus-visible {
+  transform:translateY(-3px); outline:none;
+  box-shadow:0 14px 26px rgba(0,0,0,0.4), inset 0 0 0 1px rgba(212,175,55,0.55);
+}
+.bs-tile-cover {
+  position:absolute; inset:0; width:100%; height:100%;
+  background-size:cover; background-position:center;
+  object-fit:cover;
+}
+.bs-tile-tint {
+  position:absolute; inset:0;
+  background:
+    linear-gradient(180deg, rgba(58,10,8,0.15) 0%, rgba(58,10,8,0.6) 75%, rgba(58,10,8,0.9) 100%),
+    radial-gradient(ellipse at 60% 30%, rgba(122,26,26,0.15), transparent 70%);
+  mix-blend-mode:multiply; pointer-events:none;
+}
+.bs-tile-code {
+  position:absolute; top:6px; left:6px;
+  font-family:'JetBrains Mono',monospace; font-size:8px;
+  letter-spacing:0.22em; text-transform:uppercase;
+  color:rgba(42,8,8,0.55); z-index:3;
+}
+.bs-tile-visited .bs-tile-code { color:rgba(237,226,196,0.85); }
+.bs-tile-badge {
+  position:absolute; top:6px; right:6px;
+  background:#d4af37; color:#2a0808;
+  font-family:'JetBrains Mono',monospace; font-weight:700; font-size:10px;
+  letter-spacing:0.12em; padding:2px 6px; line-height:1; z-index:3;
+}
+.bs-tile-foot {
+  position:absolute; left:8px; right:8px; bottom:7px; z-index:3;
+}
+.bs-tile-name {
+  font-family:'Cormorant Garamond',serif; font-style:italic; font-weight:500;
+  font-size:15px; line-height:1.05;
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+}
+.bs-tile-visited .bs-tile-name { color:#ede2c4; text-shadow:0 1px 5px rgba(0,0,0,0.55); }
+.bs-tile-empty .bs-tile-name { color:#2a0808; }
+.bs-tile-sub {
+  font-family:'JetBrains Mono',monospace; font-size:8px;
+  letter-spacing:0.22em; text-transform:uppercase; margin-top:2px;
+}
+.bs-tile-visited .bs-tile-sub { color:rgba(237,226,196,0.75); text-shadow:0 1px 4px rgba(0,0,0,0.5); }
+.bs-tile-empty .bs-tile-sub { color:rgba(42,8,8,0.4); }
+@media (max-width: 639px) {
+  .bs-tile-name { font-size:13px; }
+  .bs-tile-sub  { display:none; }
+}
 
-.bs-fortune { background:linear-gradient(180deg, #d4af37, #b8851f); color:#1a0808; padding:14px 18px; text-align:center; font-family:'Cormorant Garamond',serif; font-style:italic; font-size:20px; letter-spacing:0.05em; font-weight:500; box-shadow:0 4px 12px rgba(0,0,0,0.3), inset 0 0 0 1px rgba(20,8,8,0.4); }
-.bs-fortune em { font-style:normal; color:#7a1a1a; }
-.bs-fortune small { display:block; font-family:'JetBrains Mono',monospace; font-style:normal; font-weight:500; font-size:10px; letter-spacing:0.3em; text-transform:uppercase; margin-top:4px; opacity:0.75; }
+.bs-tile-corner {
+  position:absolute; width:14px; height:14px; pointer-events:none;
+  opacity:0; transition:opacity .15s;
+}
+.bs-tile:hover .bs-tile-corner, .bs-tile:focus-visible .bs-tile-corner { opacity:1; }
+.bs-tile-corner-tl { top:5px; left:5px;  border-top:1.5px solid #d4af37; border-left:1.5px solid #d4af37; }
+.bs-tile-corner-tr { top:5px; right:5px; border-top:1.5px solid #d4af37; border-right:1.5px solid #d4af37; }
+.bs-tile-corner-bl { bottom:5px; left:5px;  border-bottom:1.5px solid #d4af37; border-left:1.5px solid #d4af37; }
+.bs-tile-corner-br { bottom:5px; right:5px; border-bottom:1.5px solid #d4af37; border-right:1.5px solid #d4af37; }
 
-/* ── upload bar ─────────────────────────────────────────────────── */
-.bs-upload-bar { display:flex; align-items:center; gap:14px; margin-top:24px; padding:14px 18px; background:rgba(20,8,8,0.3); border:1.5px dashed rgba(212,175,55,0.4); }
-.bs-upload-btn { background:#d4af37; color:#1a0808; border:none; padding:10px 20px; font-family:'JetBrains Mono',monospace; font-size:11px; letter-spacing:0.25em; text-transform:uppercase; font-weight:600; cursor:pointer; transition:background .15s, transform .1s; }
+.bs-no-match {
+  text-align:center; padding:36px 16px;
+  font-family:'Cormorant Garamond',serif; font-style:italic;
+  font-size:16px; color:rgba(42,8,8,0.55);
+}
+
+/* ── stub footer stats ─────────────────────────────────────────── */
+.bs-stub-foot {
+  margin-top:36px; padding-top:18px;
+  border-top:1px dashed rgba(42,8,8,0.3);
+  display:flex; flex-wrap:wrap; gap:24px; align-items:center;
+}
+.bs-foot-stat { min-width:0; }
+.bs-foot-label {
+  font-family:'JetBrains Mono',monospace; font-size:9px;
+  letter-spacing:0.24em; text-transform:uppercase; color:rgba(42,8,8,0.55);
+}
+.bs-foot-big {
+  font-family:'Cormorant Garamond',serif; font-style:italic;
+  font-size:36px; color:#2a0808; line-height:1; margin-top:4px;
+}
+.bs-foot-of { color:rgba(42,8,8,0.4); }
+.bs-foot-sub {
+  font-family:'JetBrains Mono',monospace; font-size:9px;
+  letter-spacing:0.22em; text-transform:uppercase; color:rgba(42,8,8,0.55);
+  margin-top:4px;
+}
+.bs-foot-sub-r { text-align:right; }
+.bs-foot-sep { width:1px; align-self:stretch; background:rgba(42,8,8,0.2); }
+@media (max-width: 639px) { .bs-foot-sep { display:none; } }
+.bs-foot-barcode-block {
+  margin-left:auto; display:flex; flex-direction:column; align-items:flex-end; gap:6px;
+}
+@media (max-width: 639px) { .bs-foot-barcode-block { margin-left:0; align-items:flex-start; } }
+
+.bs-barcode { display:flex; align-items:stretch; gap:1px; height:30px; }
+.bs-bar { display:inline-block; background:#2a0808; }
+
+.bs-fineprint {
+  margin-top:18px; padding:0 8px;
+  text-align:center;
+  font-family:'JetBrains Mono',monospace; font-size:10px;
+  letter-spacing:0.24em; text-transform:uppercase; color:rgba(237,226,196,0.45);
+}
+
+/* ── detail (slide-in) ─────────────────────────────────────────── */
+.bs-detail {
+  position:fixed; inset:0; z-index:40;
+  background:radial-gradient(ellipse at 50% 30%, #7a1a1a 0%, #4a0e08 65%, #2a0608 100%);
+  overflow-y:auto;
+  animation:bsDetailSlide .42s cubic-bezier(0.16, 1, 0.3, 1);
+}
+@keyframes bsDetailSlide {
+  from { transform:translateX(100%); opacity:0; }
+  to   { transform:translateX(0);    opacity:1; }
+}
+.bs-detail-topbar {
+  display:flex; align-items:center; justify-content:space-between;
+  padding-left:32px; padding-right:8px; margin-bottom:14px;
+}
+@media (max-width: 639px) { .bs-detail-topbar { padding-left:12px; } }
+.bs-back {
+  background:none; border:none; cursor:pointer;
+  font-family:'JetBrains Mono',monospace; font-size:11px;
+  letter-spacing:0.28em; text-transform:uppercase; color:#d4af37;
+  display:inline-flex; align-items:center; gap:8px;
+  padding:4px 0;
+}
+.bs-back:hover { color:#ede2c4; }
+.bs-detail-esc {
+  font-family:'JetBrains Mono',monospace; font-size:9px;
+  letter-spacing:0.22em; text-transform:uppercase; color:rgba(237,226,196,0.5);
+}
+@media (max-width: 639px) { .bs-detail-esc { display:none; } }
+
+/* arrival header */
+.bs-arrival {
+  position:relative; padding:18px;
+  box-shadow:inset 0 0 0 2px rgba(122,26,26,0.6), inset 0 0 0 5px rgba(122,26,26,0.3);
+}
+@media (max-width: 639px) { .bs-arrival { padding:14px; } }
+.bs-arrival-stamp {
+  position:absolute; background:#ede2c4; padding:2px 8px;
+  font-family:'JetBrains Mono',monospace; font-weight:700; font-size:9px;
+  letter-spacing:0.28em; text-transform:uppercase;
+}
+.bs-arrival-stamp-tl { top:-10px; left:-10px; color:#7a1a1a; transform:rotate(-4deg); }
+.bs-arrival-stamp-br { bottom:-10px; right:-10px; color:rgba(42,8,8,0.7); transform:rotate(3deg); }
+@media (max-width: 639px) {
+  .bs-arrival-stamp-tl { left:-4px; }
+  .bs-arrival-stamp-br { right:-4px; }
+}
+
+.bs-arrival-grid {
+  display:grid; grid-template-columns:auto 1fr auto; gap:22px;
+  align-items:center;
+}
+@media (max-width: 900px) {
+  .bs-arrival-grid {
+    grid-template-columns:auto 1fr; gap:14px;
+  }
+  .bs-arrival-coin-cell { grid-column:1 / -1; justify-self:start; }
+}
+@media (max-width: 480px) {
+  .bs-arrival-grid { grid-template-columns:1fr; }
+  .bs-arrival-flag { justify-self:start; }
+}
+
+.bs-arrival-flag {
+  font-size:clamp(48px, 9vw, 96px); line-height:1;
+  font-family:'Noto Color Emoji','Apple Color Emoji','Segoe UI Emoji',sans-serif;
+  filter:drop-shadow(0 6px 10px rgba(0,0,0,0.25));
+}
+.bs-arrival-name-block { min-width:0; }
+.bs-arrival-label {
+  font-family:'JetBrains Mono',monospace; font-weight:700; font-size:10px;
+  letter-spacing:0.28em; text-transform:uppercase; color:#7a1a1a;
+  margin-bottom:4px;
+}
+.bs-arrival-name {
+  margin:0;
+  font-family:'Cormorant Garamond',serif; font-style:italic; font-weight:500;
+  font-size:clamp(40px, 7vw, 86px); line-height:0.95; letter-spacing:-0.02em;
+  color:#2a0808; word-break:break-word;
+}
+.bs-arrival-ribbon {
+  display:inline-flex; align-items:center; gap:8px; margin-top:10px;
+  padding:6px 12px;
+  background:#f6ecd3; border:1px dashed rgba(42,8,8,0.4);
+  font-family:'JetBrains Mono',monospace; font-size:10px;
+  letter-spacing:0.24em; text-transform:uppercase; color:rgba(42,8,8,0.75);
+  flex-wrap:wrap;
+}
+.bs-arrival-ribbon b { color:#2a0808; }
+.bs-arrival-ribbon-sep { color:rgba(42,8,8,0.3); }
+
+.bs-arrival-coin-cell { display:flex; justify-content:flex-end; }
+@media (max-width: 900px) { .bs-arrival-coin-cell { justify-content:flex-start; } }
+
+.bs-arrival-crew {
+  margin-top:18px;
+  display:flex; align-items:center; gap:12px; flex-wrap:wrap;
+}
+
+/* perforation divider with circle cutouts */
+.bs-perforation { position:relative; margin:26px 0; height:1px; }
+.bs-perf-hole {
+  position:absolute; top:50%; transform:translateY(-50%);
+  width:20px; height:20px; border-radius:50%; background:#2a0608;
+}
+.bs-perf-hole-l { left:-44px; }
+.bs-perf-hole-r { right:-26px; }
+@media (max-width: 639px) {
+  .bs-perf-hole-l { left:-30px; }
+  .bs-perf-hole-r { right:-30px; }
+}
+.bs-perf-line {
+  position:absolute; left:0; right:0; top:0; height:1px;
+  background:repeating-linear-gradient(to right, rgba(58,10,8,0.5) 0 6px, transparent 6px 12px);
+}
+
+/* upload bar */
+.bs-upload-bar {
+  display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between;
+  gap:14px; padding:14px 16px;
+  background:linear-gradient(180deg, rgba(212,175,55,0.22) 0%, rgba(212,175,55,0.1) 100%);
+  box-shadow:inset 0 0 0 1px rgba(212,175,55,0.55), inset 0 0 0 2px rgba(212,175,55,0.18);
+}
+.bs-upload-btn {
+  background:#d4af37; color:#2a0808; border:none;
+  padding:12px 20px; cursor:pointer;
+  font-family:'JetBrains Mono',monospace; font-weight:700; font-size:12px;
+  letter-spacing:0.22em; text-transform:uppercase;
+  display:inline-flex; align-items:center; gap:10px;
+  box-shadow:0 6px 14px rgba(0,0,0,0.2);
+  transition:background .15s, transform .1s;
+}
 .bs-upload-btn:hover:not(:disabled) { background:#f0c659; }
 .bs-upload-btn:active:not(:disabled) { transform:scale(0.98); }
 .bs-upload-btn:disabled { opacity:0.7; cursor:wait; }
-.bs-upload-hint { font-family:'JetBrains Mono',monospace; font-size:10px; letter-spacing:0.2em; color:rgba(245,231,196,0.5); text-transform:uppercase; }
-.bs-upload-error { margin:14px 0 0; padding:10px 14px; background:rgba(122,26,26,0.45); border:1px solid rgba(220,53,69,0.45); color:#f5c2c7; font-family:'JetBrains Mono',monospace; font-size:11px; letter-spacing:0.1em; }
+.bs-upload-btn-plus { font-size:20px; line-height:1; }
 
-/* ── upload progress bar ────────────────────────────────────────────
-   Visible while an XHR is mid-flight. The fill bar uses width: %  driven
-   by xhr.upload.onprogress so a phone uploading a long video over LTE
-   has a believable signal that the request is actually doing something. */
+.bs-upload-hint {
+  display:flex; flex-direction:column; gap:2px;
+  font-family:'JetBrains Mono',monospace; font-size:10px;
+  letter-spacing:0.18em; text-transform:uppercase; color:rgba(42,8,8,0.7);
+}
+.bs-upload-hint b { color:#2a0808; }
+
 .bs-upload-progress {
   margin-top:10px; padding:10px 14px;
-  background:rgba(20,8,8,0.3);
-  border:1px solid rgba(212,175,55,0.35);
+  background:rgba(58,10,8,0.06);
+  border:1px solid rgba(212,175,55,0.45);
   border-left:3px solid #d4af37;
 }
 .bs-upload-progress-row {
   display:flex; align-items:baseline; justify-content:space-between; gap:12px;
   font-family:'JetBrains Mono',monospace; font-size:10px;
-  letter-spacing:0.18em; text-transform:uppercase;
-  color:rgba(245,231,196,0.85);
+  letter-spacing:0.18em; text-transform:uppercase; color:rgba(42,8,8,0.85);
   margin-bottom:6px;
 }
 .bs-upload-progress-name {
   text-overflow:ellipsis; overflow:hidden; white-space:nowrap;
   flex:1; min-width:0;
 }
-.bs-upload-progress-size { color:rgba(245,231,196,0.5); }
+.bs-upload-progress-size { color:rgba(42,8,8,0.5); }
 .bs-upload-progress-pct {
-  flex-shrink:0; color:#d4af37; font-weight:600;
+  flex-shrink:0; color:#7a1a1a; font-weight:700;
   font-variant-numeric:tabular-nums;
 }
 .bs-upload-progress-track {
-  height:4px; background:rgba(20,8,8,0.55);
-  border:1px solid rgba(212,175,55,0.15);
+  height:4px; background:rgba(58,10,8,0.15);
+  border:1px solid rgba(212,175,55,0.25);
   overflow:hidden;
 }
 .bs-upload-progress-fill {
@@ -857,15 +1477,95 @@ const CSS = `
   box-shadow:0 0 8px rgba(212,175,55,0.4);
 }
 
-/* ── gallery ────────────────────────────────────────────────────── */
-.bs-gallery { display:grid; grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); gap:22px; margin-top:32px; }
-.bs-item-wrap { transition:opacity .15s; }
-.bs-item-wrap:hover .bs-item-drag { opacity:0.85; }
-.bs-item-dragging { box-shadow:0 18px 40px rgba(0,0,0,0.55); }
-.bs-item { position:relative; margin:0; background:#f5e7c4; padding:8px 8px 0; box-shadow:0 10px 24px rgba(0,0,0,0.35), inset 0 0 0 1px #d4af37; }
-.bs-item-drag {
-  position:absolute; bottom:10px; left:10px; z-index:5;
-  width:28px; height:28px; padding:0;
+.bs-upload-error {
+  margin:12px 0 0; padding:10px 14px;
+  background:rgba(122,26,26,0.15);
+  border:1px solid rgba(220,53,69,0.45);
+  color:#7a1a1a;
+  font-family:'JetBrains Mono',monospace; font-size:11px; letter-spacing:0.1em;
+}
+
+/* empty state */
+.bs-empty {
+  display:flex; flex-direction:column; align-items:center; gap:16px;
+  padding:40px 12px;
+}
+.bs-plaque {
+  position:relative; max-width:460px; width:100%; padding:28px 24px;
+  background:linear-gradient(180deg, rgba(212,175,55,0.22) 0%, rgba(212,175,55,0.1) 100%);
+  box-shadow:inset 0 0 0 2px #d4af37, inset 0 0 0 4px rgba(212,175,55,0.25);
+  transform:rotate(-0.6deg); text-align:center;
+}
+.bs-plaque-tag {
+  position:absolute; top:-9px; left:50%; transform:translateX(-50%);
+  background:#ede2c4; padding:0 10px;
+  font-family:'JetBrains Mono',monospace; font-weight:700; font-size:9px;
+  letter-spacing:0.3em; text-transform:uppercase; color:#a8853a;
+}
+.bs-plaque-title {
+  font-family:'Cormorant Garamond',serif; font-style:italic;
+  font-size:clamp(22px, 4vw, 30px); color:#2a0808; line-height:1.15;
+}
+.bs-plaque-sub {
+  font-family:'Cormorant Garamond',serif; font-style:italic;
+  font-size:18px; color:rgba(42,8,8,0.65); line-height:1.2; margin-top:2px;
+}
+.bs-plaque-count {
+  margin-top:16px;
+  font-family:'JetBrains Mono',monospace; font-size:10px;
+  letter-spacing:0.28em; text-transform:uppercase; color:#a8853a;
+}
+.bs-empty-cta {
+  background:#7a1a1a; color:#ede2c4; border:none;
+  padding:12px 20px; cursor:pointer;
+  font-family:'JetBrains Mono',monospace; font-weight:700; font-size:11px;
+  letter-spacing:0.22em; text-transform:uppercase;
+  display:inline-flex; align-items:center; gap:10px;
+  transition:background .15s;
+}
+.bs-empty-cta:hover { background:#5a0e08; }
+
+/* gallery (CSS columns masonry) */
+.bs-gallery-wrap { margin-top:26px; }
+.bs-gallery {
+  column-count:3; column-gap:22px;
+}
+@media (max-width: 1024px) { .bs-gallery { column-count:2; } }
+@media (max-width: 600px)  { .bs-gallery { column-count:1; } }
+.bs-polaroid-wrap {
+  break-inside:avoid; display:block; margin-bottom:22px;
+  transition:opacity .15s;
+}
+.bs-polaroid-dragging { box-shadow:0 24px 42px rgba(0,0,0,0.55); }
+
+.bs-polaroid {
+  margin:0; background:#f6ecd3;
+  padding:8px 8px 4px;
+  box-shadow:0 16px 30px rgba(0,0,0,0.45), 0 2px 6px rgba(0,0,0,0.2);
+  transform:rotate(var(--bs-rot, 0deg));
+  transition:transform .2s, box-shadow .2s;
+}
+.bs-polaroid:hover {
+  transform:translateY(-3px) rotate(0deg);
+  box-shadow:0 22px 40px rgba(0,0,0,0.55), 0 2px 6px rgba(0,0,0,0.25);
+  z-index:5;
+}
+.bs-polaroid-media {
+  position:relative; background:#2a0608;
+  box-shadow:inset 0 0 0 1px rgba(212,175,55,0.7), inset 0 0 0 2px rgba(212,175,55,0.15);
+}
+.bs-polaroid-media img, .bs-polaroid-media video {
+  display:block; width:100%; height:auto;
+}
+.bs-polaroid-duration {
+  position:absolute; bottom:6px; right:6px;
+  background:rgba(0,0,0,0.7); color:#fff;
+  font-family:'JetBrains Mono',monospace; font-size:10px;
+  padding:2px 6px; letter-spacing:0.05em;
+}
+.bs-polaroid-grip {
+  position:absolute; bottom:6px; left:6px; z-index:3;
+  width:26px; height:26px; padding:0;
   background:rgba(20,8,8,0.78); color:#d4af37;
   border:1px solid rgba(212,175,55,0.55);
   font-family:'JetBrains Mono',monospace; font-size:14px; line-height:1;
@@ -873,99 +1573,55 @@ const CSS = `
   cursor:grab; opacity:0; transition:opacity .15s, color .15s, background .15s;
   touch-action:none;
 }
-.bs-item-drag:hover { opacity:1 !important; color:#f0c659; background:rgba(20,8,8,0.92); }
-.bs-item-drag:active, .bs-item-drag:focus-visible { cursor:grabbing; opacity:1 !important; outline:none; }
-.bs-item-cover-badge {
-  position:absolute; top:10px; right:10px; z-index:5;
-  background:#d4af37; color:#1a0808;
-  font-family:'JetBrains Mono',monospace; font-size:9px; font-weight:600;
-  letter-spacing:0.2em; text-transform:uppercase;
-  padding:4px 8px; border-radius:1px;
-  box-shadow:0 1px 3px rgba(0,0,0,0.3);
-  pointer-events:none;
+.bs-polaroid:hover .bs-polaroid-grip { opacity:0.85; }
+.bs-polaroid-grip:hover { opacity:1 !important; color:#f0c659; background:rgba(20,8,8,0.92); }
+.bs-polaroid-grip:active, .bs-polaroid-grip:focus-visible { cursor:grabbing; opacity:1 !important; outline:none; }
+
+.bs-polaroid-cover-badge {
+  position:absolute; top:-6px; right:-6px; z-index:4;
+  background:#d4af37; color:#2a0808;
+  font-family:'JetBrains Mono',monospace; font-weight:700; font-size:9px;
+  letter-spacing:0.18em; text-transform:uppercase;
+  padding:4px 8px; line-height:1; box-shadow:0 4px 10px rgba(0,0,0,0.3);
+  transform:rotate(8deg);
 }
-.bs-item-media { position:relative; aspect-ratio:1/1; background:#1a0808; overflow:hidden; }
-.bs-item-media img, .bs-item-media video { width:100%; height:100%; object-fit:cover; display:block; }
-.bs-item-duration { position:absolute; bottom:6px; right:6px; background:rgba(0,0,0,0.7); color:#fff; font-family:'JetBrains Mono',monospace; font-size:10px; padding:2px 6px; border-radius:2px; letter-spacing:0.05em; }
-.bs-item-caption { display:flex; align-items:center; gap:8px; padding:8px 4px; font-family:'JetBrains Mono',monospace; font-size:10px; letter-spacing:0.15em; text-transform:uppercase; color:#7a1a1a; }
-.bs-item-author { flex:1; font-weight:600; }
-.bs-item-date { opacity:0.6; }
-.bs-item-delete { background:none; border:none; color:#7a1a1a; font-family:'JetBrains Mono',monospace; font-size:14px; cursor:pointer; padding:2px 6px; opacity:0.4; transition:opacity .15s, color .15s; }
-.bs-item-delete:hover:not(:disabled) { opacity:1; color:#b91d22; }
-/* Foreign uploads get a slightly more cautious styling so an accidental
-   click on someone else's photo feels more intentional than the obvious
-   "x out my own thing" gesture. */
-.bs-item-delete-foreign { opacity:0.25; color:#5a1414; }
-.bs-item-delete-foreign:hover:not(:disabled) { color:#b91d22; opacity:0.85; }
 
-/* ── empty state ────────────────────────────────────────────────── */
-.bs-empty { text-align:center; padding:60px 20px; color:rgba(245,231,196,0.6); font-family:'Cormorant Garamond',serif; font-style:italic; font-size:18px; }
-.bs-empty-mark { font-size:64px; color:rgba(212,175,55,0.4); line-height:1; margin-bottom:12px; }
-/* ── mobile responsiveness ──────────────────────────────────────────
-   The screenshots from a real iPhone showed the wordmark spilling past
-   the right edge, the dragon clipping, and the country-detail's 3-column
-   grid squeezing "shared by the group" into an awkward 3-line ribbon.
-   These rules collapse the layout for narrow viewports while keeping
-   the desktop design unchanged above the breakpoint. */
-@media (max-width: 720px) {
-  .bs-root { padding:24px 14px 56px; }
-  .bs-sky { height:140px; }
-  .bs-dragon-wrap {
-    width:240px; height:111px; top:24px;
-    /* Keep the dragon path within the viewport so the right tail doesn't
-       slide off-screen on narrow devices. */
-    animation-duration:18s;
-  }
-  .bs-frame { margin-top:152px; padding:20px 16px 22px; }
-  .bs-header { flex-direction:column; align-items:flex-start; gap:14px; padding-bottom:14px; }
-  .bs-wordmark { font-size:clamp(44px, 14vw, 72px); }
-  .bs-wordmark-sub { font-size:13px; }
-  .bs-stats { width:100%; justify-content:flex-end; gap:12px; }
-  .bs-stat-coin { width:62px; height:62px; }
-  .bs-stat-coin::before { inset:6px; }
-  .bs-stat-coin::after { inset:13px; }
-  .bs-stat-coin-num { font-size:15px; }
-  .bs-stat-text { font-size:15px; }
-  .bs-stat-text b { font-size:17px; }
-  .bs-stat-text small { font-size:8px; letter-spacing:0.22em; }
+.bs-polaroid-caption {
+  display:flex; align-items:baseline; justify-content:space-between;
+  gap:8px; padding:8px 4px 4px;
+}
+.bs-polaroid-author {
+  font-family:'JetBrains Mono',monospace; font-size:10px;
+  letter-spacing:0.16em; text-transform:uppercase; color:rgba(42,8,8,0.65);
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:1; min-width:0;
+}
+.bs-polaroid-author b { color:#2a0808; }
+.bs-polaroid-date { color:rgba(42,8,8,0.55); }
+.bs-polaroid-delete {
+  background:none; border:none; cursor:pointer;
+  font-family:'JetBrains Mono',monospace; font-size:16px; line-height:1;
+  color:#7a1a1a; padding:2px 6px;
+  opacity:0; transition:opacity .15s, color .15s;
+}
+.bs-polaroid:hover .bs-polaroid-delete, .bs-polaroid:focus-within .bs-polaroid-delete { opacity:1; }
+.bs-polaroid-delete:hover { color:#5a0e08; }
+.bs-polaroid-delete-mine { opacity:0.4; }
+.bs-polaroid:hover .bs-polaroid-delete-mine { opacity:1; }
 
-  .bs-meta-row { gap:10px; padding-bottom:14px; }
-  .bs-meta-actions { width:100%; flex-wrap:wrap; }
-  .bs-meta-btn { padding:6px 10px; font-size:9px; letter-spacing:0.18em; }
-  .bs-switcher-panel { right:auto; left:0; min-width:200px; max-width:calc(100vw - 40px); }
-
-  .bs-search-row { gap:10px; }
-  .bs-search { flex:1; width:auto; min-width:0; }
-
-  /* country detail view */
-  .bs-detail { padding:24px 14px 56px; }
-  .bs-detail-head {
-    grid-template-columns:1fr; gap:14px; padding:18px;
-    grid-template-areas:
-      'flag'
-      'name'
-      'coin';
-  }
-  .bs-flag-cell { grid-area:flag; width:64px; height:64px; font-size:34px; }
-  .bs-name-stack { grid-area:name; gap:6px; }
-  .bs-name-big { font-size:clamp(44px, 12vw, 72px); }
-  .bs-name-row { font-size:9px; letter-spacing:0.22em; gap:10px; }
-  .bs-name-row span:not(:last-child)::after { margin-left:10px; }
-  .bs-headcoin { grid-area:coin; width:64px; height:64px; justify-self:start; }
-  .bs-headcoin-num { font-size:17px; }
-  .bs-headcoin-lbl { bottom:-16px; font-size:8px; }
-
-  .bs-fortune { font-size:16px; padding:10px 14px; }
-  .bs-fortune small { font-size:9px; letter-spacing:0.22em; }
-
-  .bs-upload-bar { flex-wrap:wrap; gap:10px; padding:12px 14px; margin-top:18px; }
-  .bs-upload-btn { padding:9px 16px; font-size:10px; letter-spacing:0.2em; }
-  .bs-upload-hint { font-size:9px; letter-spacing:0.18em; }
-
-  .bs-gallery { grid-template-columns:repeat(auto-fill, minmax(150px, 1fr)); gap:14px; margin-top:22px; }
-  .bs-item { padding:6px 6px 0; }
-  .bs-item-drag { width:24px; height:24px; opacity:0.5; }
-
-  .bs-back { padding:6px 12px; font-size:9px; letter-spacing:0.22em; margin-bottom:18px; }
+/* detail footer */
+.bs-detail-foot {
+  margin-top:30px; padding-top:16px;
+  border-top:1px dashed rgba(42,8,8,0.3);
+  display:flex; align-items:center; justify-content:space-between; gap:14px;
+  flex-wrap:wrap;
+}
+.bs-detail-foot-left {
+  display:inline-flex; align-items:center; gap:10px;
+  font-family:'JetBrains Mono',monospace; font-size:9px;
+  letter-spacing:0.22em; text-transform:uppercase; color:rgba(42,8,8,0.55);
+}
+.bs-detail-foot-right {
+  font-family:'JetBrains Mono',monospace; font-size:9px;
+  letter-spacing:0.22em; text-transform:uppercase; color:rgba(42,8,8,0.55);
 }
 `;
