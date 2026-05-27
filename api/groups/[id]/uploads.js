@@ -6,9 +6,9 @@
 //   req.body       — text form fields (countryCode, kind, durationSec)
 
 import path from 'node:path';
-import { sql, isUniqueViolation } from '../../_lib/db.js';
+import { db, sql, isUniqueViolation } from '../../_lib/db.js';
 import { requireMember } from '../../_lib/auth.js';
-import { methodOk, badReq } from '../../_lib/json.js';
+import { methodOk, badReq, readBody } from '../../_lib/json.js';
 import { saveBlob, deleteBlob, publicUrlFor } from '../../_lib/storage.js';
 import fs from 'node:fs/promises';
 
@@ -20,15 +20,16 @@ const IMAGE_MIME = /^image\/(jpe?g|png|gif|webp|avif|heic|heif)$/i;
 const VIDEO_MIME = /^video\/(mp4|webm|quicktime|x-matroska|x-msvideo|3gpp|3gpp2)$/i;
 
 export default async function handler(req, res) {
-  if (!methodOk(req, res, ['POST', 'DELETE'])) return;
+  if (!methodOk(req, res, ['POST', 'DELETE', 'PATCH'])) return;
   const groupId = String(req.query?.id || '').trim();
   if (!groupId) return badReq(res, 'missing group id');
 
   const auth = await requireMember(req, res, groupId);
   if (!auth) return;
 
-  if (req.method === 'POST') return registerUpload(req, res, groupId, auth);
+  if (req.method === 'POST')   return registerUpload(req, res, groupId, auth);
   if (req.method === 'DELETE') return deleteUpload(req, res, groupId, auth);
+  if (req.method === 'PATCH')  return reorderUploads(req, res, groupId, auth);
 }
 
 async function registerUpload(req, res, groupId, auth) {
@@ -76,14 +77,21 @@ async function registerUpload(req, res, groupId, auth) {
   }
 
   try {
+    // INSERT with position = (max of existing positions in this group/country) + 1
+    // so new uploads always append to the end without disturbing curation.
+    // The SELECT subquery is a no-rows-still-returns-one-row aggregate, so it
+    // yields 0 for the very first upload to a country.
     const rows = await sql`
       INSERT INTO uploads
         (group_id, member_id, country_code, kind, r2_key,
-         original_filename, content_type, size_bytes, duration_sec)
-      VALUES
-        (${groupId}, ${auth.member.id}, ${countryCode}, ${kind}, ${r2Key},
-         ${filename}, ${contentType}, ${sizeBytes}, ${durationSec})
-      RETURNING id, created_at
+         original_filename, content_type, size_bytes, duration_sec, position)
+      SELECT
+        ${groupId}, ${auth.member.id}, ${countryCode}, ${kind}, ${r2Key},
+        ${filename}, ${contentType}, ${sizeBytes}, ${durationSec},
+        COALESCE(MAX(position), -1) + 1
+      FROM uploads
+      WHERE group_id = ${groupId} AND country_code = ${countryCode}
+      RETURNING id, created_at, position
     `;
     const row = rows[0];
     res.status(201).json({
@@ -96,6 +104,7 @@ async function registerUpload(req, res, groupId, auth) {
         contentType,
         sizeBytes,
         durationSec,
+        position: row.position,
         createdAt: row.created_at,
         member: { id: auth.member.id, name: auth.member.displayName },
       },
@@ -129,4 +138,57 @@ async function deleteUpload(req, res, groupId, auth) {
   // file deletion is best-effort; orphan blob is harmless
   deleteBlob(u.r2_key).catch(e => console.warn('storage delete failed:', e));
   res.json({ ok: true });
+}
+
+// Reorder every upload in a (group, country) to match the client's new sequence.
+// Body: { countryCode: 'co', orderedIds: [12, 5, 27, ...] }
+// The orderedIds list must contain exactly the set of current upload ids for
+// that country — extras or omissions are rejected so the client never silently
+// loses an item when it's out of sync.
+async function reorderUploads(req, res, groupId, _auth) {
+  const body = await readBody(req).catch(() => null);
+  if (!body) return badReq(res, 'invalid json body');
+
+  const countryCode = String(body.countryCode || '').trim().toLowerCase();
+  if (!/^[a-z]{2,3}$/.test(countryCode)) return badReq(res, 'invalid countryCode');
+
+  if (!Array.isArray(body.orderedIds)) return badReq(res, 'orderedIds must be an array');
+  const ids = body.orderedIds.map(Number);
+  if (ids.some(n => !Number.isInteger(n) || n <= 0)) {
+    return badReq(res, 'orderedIds must be positive integers');
+  }
+  if (new Set(ids).size !== ids.length) {
+    return badReq(res, 'orderedIds contains duplicates');
+  }
+
+  // Verify the set matches the country's current uploads exactly.
+  const current = db
+    .prepare('SELECT id FROM uploads WHERE group_id = ? AND country_code = ?')
+    .all(groupId, countryCode)
+    .map(r => r.id);
+
+  if (current.length !== ids.length) {
+    return res.status(409).json({
+      error: 'orderedIds length does not match current uploads — refresh and retry',
+      expected: current.length,
+      got: ids.length,
+    });
+  }
+  const currentSet = new Set(current);
+  if (!ids.every(id => currentSet.has(id))) {
+    return res.status(409).json({ error: 'orderedIds set does not match current uploads — refresh and retry' });
+  }
+
+  // Atomic transaction: write each new position.
+  const updateOne = db.prepare(
+    'UPDATE uploads SET position = ? WHERE id = ? AND group_id = ? AND country_code = ?'
+  );
+  const tx = db.transaction((orderedIds) => {
+    for (let i = 0; i < orderedIds.length; i++) {
+      updateOne.run(i, orderedIds[i], groupId, countryCode);
+    }
+  });
+  tx(ids);
+
+  res.json({ ok: true, count: ids.length });
 }

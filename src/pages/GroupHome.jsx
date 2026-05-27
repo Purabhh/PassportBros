@@ -58,6 +58,20 @@ export default function GroupHome() {
     }
   }, [groupId, member?.token, loadData]);
 
+  // Drag-to-reorder. The Scrapbook drives the visual rearrangement with its
+  // own local state during the drag; we just persist the final order and
+  // refetch to confirm (or revert) from the server's view.
+  const handleReorder = useCallback(async (countryCode, orderedIds) => {
+    try {
+      await api.reorderUploads({ groupId, token: member.token, countryCode, orderedIds });
+      await loadData();
+      return { ok: true };
+    } catch (e) {
+      await loadData();
+      return { ok: false, error: e.message };
+    }
+  }, [groupId, member?.token, loadData]);
+
   function handleLeave() {
     if (!confirm('Leave this group on this device? Your uploads stay; you can rejoin with the same link.')) return;
     clearMemberFor(groupId);
@@ -87,6 +101,7 @@ export default function GroupHome() {
       totals={data.totals}
       onUpload={handleUpload}
       onDelete={handleDelete}
+      onReorder={handleReorder}
       onLeave={handleLeave}
       inviteUrl={typeof window !== 'undefined' ? `${window.location.origin}/g/${groupId}` : `/g/${groupId}`}
     />

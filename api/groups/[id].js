@@ -12,7 +12,7 @@ export default async function handler(req, res) {
 
   const rows = await sql`
     SELECT g.id, g.name, g.created_at,
-           COUNT(m.id)::int AS member_count
+           COUNT(m.id) AS member_count
       FROM groups g
       LEFT JOIN members m ON m.group_id = g.id
      WHERE g.id = ${id}

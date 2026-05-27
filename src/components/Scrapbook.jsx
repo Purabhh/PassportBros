@@ -3,6 +3,15 @@
 // member's photos and videos for that country, with upload + delete.
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
+import {
+  DndContext, closestCenter, PointerSensor, KeyboardSensor,
+  useSensor, useSensors,
+} from '@dnd-kit/core';
+import {
+  SortableContext, arrayMove, useSortable, sortableKeyboardCoordinates,
+  rectSortingStrategy,
+} from '@dnd-kit/sortable';
+import { CSS as DndCSS } from '@dnd-kit/utilities';
 
 // ─── helpers ───────────────────────────────────────────────────────────
 
@@ -62,7 +71,7 @@ const MAX_VIDEO_SECONDS = 5 * 60;
 
 export default function Scrapbook({
   group, me, members, countries, totals,
-  onUpload, onDelete, onLeave, inviteUrl,
+  onUpload, onDelete, onReorder, onLeave, inviteUrl,
 }) {
   const [selected, setSelected] = useState(null);
   const [query, setQuery] = useState('');
@@ -79,11 +88,41 @@ export default function Scrapbook({
     if (fresh && fresh !== selected) setSelected(fresh);
   }, [countries, selected]);
 
-  function copyInvite() {
-    navigator.clipboard?.writeText(inviteUrl).then(() => {
+  async function copyInvite() {
+    // navigator.clipboard is only defined in secure contexts (https or localhost).
+    // When friends open the app over plain http on a LAN IP the API is undefined,
+    // which used to make .then() throw silently and the button do nothing. Try the
+    // modern API first, fall back to execCommand, and as a last resort show the URL
+    // in a prompt so the user can copy it by hand.
+    let ok = false;
+    try {
+      if (window.isSecureContext && navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(inviteUrl);
+        ok = true;
+      } else {
+        const ta = document.createElement('textarea');
+        ta.value = inviteUrl;
+        ta.setAttribute('readonly', '');
+        ta.style.position = 'fixed';
+        ta.style.top = '0';
+        ta.style.left = '0';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.select();
+        ta.setSelectionRange(0, ta.value.length);
+        ok = document.execCommand('copy');
+        document.body.removeChild(ta);
+      }
+    } catch {
+      ok = false;
+    }
+    if (ok) {
       setCopied(true);
       setTimeout(() => setCopied(false), 1800);
-    });
+    } else {
+      // Last-resort: surface the URL so the user can copy manually.
+      window.prompt('copy this invite link:', inviteUrl);
+    }
   }
 
   return (
@@ -204,6 +243,7 @@ export default function Scrapbook({
           onClose={() => setSelected(null)}
           onUpload={onUpload}
           onDelete={onDelete}
+          onReorder={onReorder}
         />
       )}
     </div>
@@ -212,11 +252,40 @@ export default function Scrapbook({
 
 // ─── per-country gallery (unlimited photos + videos) ──────────────────
 
-function CountryGallery({ country, me, onClose, onUpload, onDelete }) {
+function CountryGallery({ country, me, onClose, onUpload, onDelete, onReorder }) {
   const fileInputRef = useRef(null);
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState(null);   // {idx, total, filename}
   const [error, setError] = useState(null);
+
+  // Local copy of the upload list that the DnD context rearranges instantly
+  // on drop. Resyncs whenever the parent hands us a fresh country.uploads
+  // (after refetch, upload, or delete).
+  const [items, setItems] = useState(country.uploads);
+  useEffect(() => { setItems(country.uploads); }, [country.uploads]);
+
+  const sensors = useSensors(
+    // 6px activation distance — short enough to feel responsive, long enough
+    // that a stray click on the X-delete button doesn't accidentally drag.
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
+
+  async function handleDragEnd(event) {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    const oldIndex = items.findIndex(i => i.id === active.id);
+    const newIndex = items.findIndex(i => i.id === over.id);
+    if (oldIndex < 0 || newIndex < 0) return;
+
+    const next = arrayMove(items, oldIndex, newIndex);
+    setItems(next);                                   // optimistic
+    const result = await onReorder(country.code, next.map(i => i.id));
+    if (!result?.ok) {
+      setError(`reorder failed: ${result?.error || 'unknown error'}`);
+      // items will resync from props once the parent refetches.
+    }
+  }
 
   async function handleFiles(e) {
     const files = Array.from(e.target.files || []);
@@ -304,33 +373,69 @@ function CountryGallery({ country, me, onClose, onUpload, onDelete }) {
             ? (progress ? `uploading ${progress.idx} / ${progress.total} — ${progress.filename}` : 'uploading…')
             : '＋ add photos or videos'}
         </button>
-        <span className="bs-upload-hint">videos up to 5:00 · jpg/png/webp/heic/mp4/mov</span>
+        <span className="bs-upload-hint">videos up to 5:00 · drag the grip to reorder · first slot = country cover</span>
       </div>
       {error && <p className="bs-upload-error">{error}</p>}
 
       {/* gallery */}
-      {country.uploads.length === 0 ? (
+      {items.length === 0 ? (
         <div className="bs-empty">
           <div className="bs-empty-mark">︵</div>
           <p>no entries yet — click the button above to add the first photo or video</p>
         </div>
       ) : (
-        <div className="bs-gallery">
-          {country.uploads.map(u => (
-            <GalleryItem
-              key={u.id}
-              item={u}
-              isMine={u.member?.id === me.id}
-              onDelete={onDelete}
-            />
-          ))}
-        </div>
+        <DndContext
+          sensors={sensors}
+          collisionDetection={closestCenter}
+          onDragEnd={handleDragEnd}
+        >
+          <SortableContext items={items.map(i => i.id)} strategy={rectSortingStrategy}>
+            <div className="bs-gallery">
+              {items.map((u, idx) => (
+                <SortableGalleryItem
+                  key={u.id}
+                  item={u}
+                  position={idx}
+                  isMine={u.member?.id === me.id}
+                  onDelete={onDelete}
+                />
+              ))}
+            </div>
+          </SortableContext>
+        </DndContext>
       )}
     </div>
   );
 }
 
-function GalleryItem({ item, isMine, onDelete }) {
+// Wraps GalleryItem with sortable behavior. The drag listeners are passed
+// down so we can attach them to a dedicated grip handle rather than the
+// whole figure — that way clicks on the X-delete button or the video play
+// area aren't swallowed by the drag detector.
+function SortableGalleryItem({ item, position, isMine, onDelete }) {
+  const {
+    attributes, listeners, setNodeRef, transform, transition, isDragging,
+  } = useSortable({ id: item.id });
+  const style = {
+    transform: DndCSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.55 : 1,
+    zIndex: isDragging ? 50 : 'auto',
+  };
+  return (
+    <div ref={setNodeRef} style={style} className={isDragging ? 'bs-item-wrap bs-item-dragging' : 'bs-item-wrap'}>
+      <GalleryItem
+        item={item}
+        position={position}
+        isMine={isMine}
+        onDelete={onDelete}
+        dragHandleProps={{ ...attributes, ...listeners }}
+      />
+    </div>
+  );
+}
+
+function GalleryItem({ item, position, isMine, onDelete, dragHandleProps }) {
   const [deleting, setDeleting] = useState(false);
   async function handleDelete() {
     const who = item.member?.name || 'someone';
@@ -346,8 +451,24 @@ function GalleryItem({ item, isMine, onDelete }) {
       alert('delete failed: ' + r.error);
     }
   }
+  const isCover = position === 0;
   return (
     <figure className="bs-item">
+      {/* Drag handle in the top-left corner. Holds the dnd-kit listeners so
+          only this grip activates a drag — clicks elsewhere on the figure
+          (the X delete, the video play area) work normally. */}
+      {dragHandleProps && (
+        <button
+          type="button"
+          className="bs-item-drag"
+          title="drag to reorder"
+          aria-label={`drag to reorder, currently at position ${position + 1}`}
+          {...dragHandleProps}
+        >
+          ⠿
+        </button>
+      )}
+      {isCover && <span className="bs-item-cover-badge" title="cover photo for this country">cover</span>}
       <div className="bs-item-media">
         {item.kind === 'video'
           ? <video src={item.url} controls preload="metadata" playsInline />
@@ -547,7 +668,31 @@ const CSS = `
 
 /* ── gallery ────────────────────────────────────────────────────── */
 .bs-gallery { display:grid; grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); gap:22px; margin-top:32px; }
-.bs-item { margin:0; background:#f5e7c4; padding:8px 8px 0; box-shadow:0 10px 24px rgba(0,0,0,0.35), inset 0 0 0 1px #d4af37; }
+.bs-item-wrap { transition:opacity .15s; }
+.bs-item-wrap:hover .bs-item-drag { opacity:0.85; }
+.bs-item-dragging { box-shadow:0 18px 40px rgba(0,0,0,0.55); }
+.bs-item { position:relative; margin:0; background:#f5e7c4; padding:8px 8px 0; box-shadow:0 10px 24px rgba(0,0,0,0.35), inset 0 0 0 1px #d4af37; }
+.bs-item-drag {
+  position:absolute; top:10px; left:10px; z-index:5;
+  width:28px; height:28px; padding:0;
+  background:rgba(20,8,8,0.78); color:#d4af37;
+  border:1px solid rgba(212,175,55,0.55);
+  font-family:'JetBrains Mono',monospace; font-size:14px; line-height:1;
+  display:flex; align-items:center; justify-content:center;
+  cursor:grab; opacity:0; transition:opacity .15s, color .15s, background .15s;
+  touch-action:none;
+}
+.bs-item-drag:hover { opacity:1 !important; color:#f0c659; background:rgba(20,8,8,0.92); }
+.bs-item-drag:active, .bs-item-drag:focus-visible { cursor:grabbing; opacity:1 !important; outline:none; }
+.bs-item-cover-badge {
+  position:absolute; top:10px; right:10px; z-index:5;
+  background:#d4af37; color:#1a0808;
+  font-family:'JetBrains Mono',monospace; font-size:9px; font-weight:600;
+  letter-spacing:0.2em; text-transform:uppercase;
+  padding:4px 8px; border-radius:1px;
+  box-shadow:0 1px 3px rgba(0,0,0,0.3);
+  pointer-events:none;
+}
 .bs-item-media { position:relative; aspect-ratio:1/1; background:#1a0808; overflow:hidden; }
 .bs-item-media img, .bs-item-media video { width:100%; height:100%; object-fit:cover; display:block; }
 .bs-item-duration { position:absolute; bottom:6px; right:6px; background:rgba(0,0,0,0.7); color:#fff; font-family:'JetBrains Mono',monospace; font-size:10px; padding:2px 6px; border-radius:2px; letter-spacing:0.05em; }

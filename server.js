@@ -20,7 +20,9 @@ import groupData        from './api/groups/[id]/data.js';
 import uploadsHandler   from './api/groups/[id]/uploads.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const PORT = Number(process.env.PORT || 3001);
+// Use API_PORT (not PORT) so the dev API doesn't collide with Vite's PORT
+// (which is read by `vite` and by some dev tooling that injects PORT into env).
+const PORT = Number(process.env.API_PORT || 3001);
 
 const app = express();
 app.disable('x-powered-by');
@@ -57,6 +59,7 @@ app.post('/api/groups/:id/members',           adapt(membersCreate, ['id']));
 app.get( '/api/groups/:id/data',              adapt(groupData,     ['id']));
 app.post('/api/groups/:id/uploads',           upload.single('file'), adapt(uploadsHandler, ['id']));
 app.delete('/api/groups/:id/uploads',         adapt(uploadsHandler, ['id']));
+app.patch('/api/groups/:id/uploads',          adapt(uploadsHandler, ['id']));
 
 app.get('/api/health', (_req, res) => {
   res.json({ ok: true, time: new Date().toISOString() });
@@ -70,7 +73,11 @@ app.use('/uploads', express.static(UPLOADS_ROOT, {
 const distDir = path.join(__dirname, 'dist');
 if (fs.existsSync(distDir)) {
   app.use(express.static(distDir, { index: false }));
-  // SPA fallback — any non-/api, non-/uploads request returns index.html.
+  // The boarding-pass landing is the homepage; /g/:id and other paths fall
+  // through to the React SPA. Both files ship in dist/ (Vite copies public/).
+  app.get('/', (_req, res) => {
+    res.sendFile(path.join(distDir, 'landing.html'));
+  });
   app.get(/^\/(?!api\/|uploads\/).*/, (_req, res) => {
     res.sendFile(path.join(distDir, 'index.html'));
   });

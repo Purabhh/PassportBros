@@ -35,12 +35,12 @@ export default async function handler(req, res) {
     loadCountries(),
     sql`
       SELECT u.id, u.country_code, u.kind, u.r2_key, u.original_filename,
-             u.content_type, u.size_bytes, u.duration_sec, u.created_at,
+             u.content_type, u.size_bytes, u.duration_sec, u.position, u.created_at,
              m.id AS member_id, m.display_name AS member_name
         FROM uploads u
         LEFT JOIN members m ON m.id = u.member_id
        WHERE u.group_id = ${groupId}
-       ORDER BY u.created_at DESC
+       ORDER BY u.country_code ASC, u.position ASC, u.created_at ASC
     `,
     sql`SELECT id, display_name FROM members WHERE group_id = ${groupId} ORDER BY created_at ASC`,
   ]);
@@ -55,6 +55,7 @@ export default async function handler(req, res) {
     contentType: u.content_type,
     sizeBytes: Number(u.size_bytes),
     durationSec: u.duration_sec,
+    position: u.position,
     createdAt: u.created_at,
     member: u.member_id ? { id: u.member_id, name: u.member_name } : null,
   }));

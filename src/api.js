@@ -53,6 +53,11 @@ export const api = {
 
   deleteUpload: ({ groupId, token, uploadId }) =>
     request('DELETE', `/api/groups/${groupId}/uploads?uploadId=${uploadId}`, { token }),
+
+  reorderUploads: ({ groupId, token, countryCode, orderedIds }) =>
+    request('PATCH', `/api/groups/${groupId}/uploads`, {
+      token, body: { countryCode, orderedIds },
+    }),
 };
 
 /**
