@@ -454,20 +454,6 @@ function GalleryItem({ item, position, isMine, onDelete, dragHandleProps }) {
   const isCover = position === 0;
   return (
     <figure className="bs-item">
-      {/* Drag handle in the top-left corner. Holds the dnd-kit listeners so
-          only this grip activates a drag — clicks elsewhere on the figure
-          (the X delete, the video play area) work normally. */}
-      {dragHandleProps && (
-        <button
-          type="button"
-          className="bs-item-drag"
-          title="drag to reorder"
-          aria-label={`drag to reorder, currently at position ${position + 1}`}
-          {...dragHandleProps}
-        >
-          ⠿
-        </button>
-      )}
       {isCover && <span className="bs-item-cover-badge" title="cover photo for this country">cover</span>}
       <div className="bs-item-media">
         {item.kind === 'video'
@@ -475,6 +461,17 @@ function GalleryItem({ item, position, isMine, onDelete, dragHandleProps }) {
           : <img src={item.url} alt="" loading="lazy" />}
         {item.kind === 'video' && item.durationSec && (
           <span className="bs-item-duration">{formatDuration(item.durationSec)}</span>
+        )}
+        {dragHandleProps && (
+          <button
+            type="button"
+            className="bs-item-drag"
+            title="drag to reorder"
+            aria-label={`drag to reorder, currently at position ${position + 1}`}
+            {...dragHandleProps}
+          >
+            ⠿
+          </button>
         )}
       </div>
       <figcaption className="bs-item-caption">
@@ -673,7 +670,7 @@ const CSS = `
 .bs-item-dragging { box-shadow:0 18px 40px rgba(0,0,0,0.55); }
 .bs-item { position:relative; margin:0; background:#f5e7c4; padding:8px 8px 0; box-shadow:0 10px 24px rgba(0,0,0,0.35), inset 0 0 0 1px #d4af37; }
 .bs-item-drag {
-  position:absolute; top:10px; left:10px; z-index:5;
+  position:absolute; bottom:10px; left:10px; z-index:5;
   width:28px; height:28px; padding:0;
   background:rgba(20,8,8,0.78); color:#d4af37;
   border:1px solid rgba(212,175,55,0.55);
