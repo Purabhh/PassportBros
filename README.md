@@ -7,7 +7,7 @@ and watch the chronicle fill up as everyone in the crew adds their own.
 To bring a friend in, just send them the link. They pick a name, they're
 in. No passwords, no email, no signups. Just memories.
 
-**Try it live at [137.184.65.14](http://137.184.65.14/)** — start a new
+**Try it live at [137.184.65.14](http://137.184.65.14/).** Start a new
 chronicle in 10 seconds and text the link to your group chat.
 
 ## Screenshots
