@@ -6,6 +6,16 @@ everyone else has shared. No passwords, no email signups.
 
 Deployed on Vercel · Postgres on Neon · files on Cloudflare R2.
 
+## Screenshots
+
+| Boarding pass (landing) | Chronicle (group home) |
+|---|---|
+| ![Landing page styled as a vintage airline boarding pass](docs/screenshots/01-landing-boarding-pass.png) | ![Group home showing the country grid on cream stub paper](docs/screenshots/02-chronicle-home.png) |
+
+| Country tile | Country detail |
+|---|---|
+| ![Stamped country tile with photo cover and entry count](docs/screenshots/03-country-tile.png) | ![Per-country gallery with polaroid entries from the whole group](docs/screenshots/04-country-detail.png) |
+
 ## Run it locally
 
 ```bash
