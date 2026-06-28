@@ -1,10 +1,14 @@
 # r/PassportBros
 
-A shared travel scrapbook for you and your friends. Anyone with the invite
-link can join, post photos and videos to each country, and see what
-everyone else has shared. No passwords, no email signups.
+**Make a PassportBros album for you, your friends, and every adventure you
+take around the world.** Pick a destination, drop in your photos and videos,
+and watch the chronicle fill up as everyone in the crew adds their own.
 
-Deployed on Vercel · Postgres on Neon · files on Cloudflare R2.
+To bring a friend in, just send them the link. They pick a name, they're
+in. No passwords, no email, no signups. Just memories.
+
+**Try it live at [137.184.65.14](http://137.184.65.14/)** — start a new
+chronicle in 10 seconds and text the link to your group chat.
 
 ## Screenshots
 
